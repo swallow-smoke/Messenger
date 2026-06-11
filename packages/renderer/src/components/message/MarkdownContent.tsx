@@ -1,0 +1,140 @@
+import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+interface Props {
+  content: string;
+  onTaskClick?: (taskNum: number) => void;
+}
+
+function openLink(href: string): void {
+  if (window.electron?.shell) {
+    void window.electron.shell.openExternal(href);
+  } else {
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }
+}
+
+function CopyButton({ code }: { code: string }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+
+  function copy() {
+    void navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <button
+      onClick={copy}
+      className="absolute top-2 right-2 px-2 py-0.5 text-[10px] rounded bg-white/10 text-white/50 hover:bg-white/20 hover:text-white transition-colors font-mono"
+    >
+      {copied ? '복사됨' : '복사'}
+    </button>
+  );
+}
+
+function processTaskLinks(text: string, onTaskClick?: (n: number) => void): React.ReactNode {
+  // Match #123 task references
+  const parts = text.split(/(#\d+)/g);
+  return parts.map((part, i) => {
+    const match = /^#(\d+)$/.exec(part);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return (
+        <button
+          key={i}
+          onClick={() => onTaskClick?.(num)}
+          className="text-accent hover:underline font-mono text-[0.85em]"
+        >
+          {part}
+        </button>
+      );
+    }
+    return part;
+  });
+}
+
+export function MarkdownContent({ content, onTaskClick }: Props): React.ReactElement {
+  return (
+    <div className="text-sm leading-relaxed break-words">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => <h1 className="text-lg font-bold mt-1 mb-0.5">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-bold mt-1 mb-0.5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-bold mt-1 mb-0.5">{children}</h3>,
+          h4: ({ children }) => <h3 className="text-sm font-bold mt-1 mb-0.5">{children}</h3>,
+          h5: ({ children }) => <h3 className="text-sm font-bold mt-1 mb-0.5">{children}</h3>,
+          h6: ({ children }) => <h3 className="text-sm font-bold mt-1 mb-0.5">{children}</h3>,
+          p: ({ children }) => (
+            <p className="my-0.5 first:mt-0 last:mb-0">
+              {React.Children.map(children, (child) =>
+                typeof child === 'string' ? processTaskLinks(child, onTaskClick) : child
+              )}
+            </p>
+          ),
+          strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          del: ({ children }) => <del className="line-through opacity-60">{children}</del>,
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-white/30 pl-3 my-1 text-white/60 italic">
+              {children}
+            </blockquote>
+          ),
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              onClick={(e) => { e.preventDefault(); if (href) openLink(href); }}
+              className="text-accent hover:underline cursor-pointer"
+            >
+              {children}
+            </a>
+          ),
+          ul: ({ children }) => <ul className="list-disc list-inside my-0.5 pl-1">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside my-0.5 pl-1">{children}</ol>,
+          li: ({ children }) => <li>{children}</li>,
+          pre: ({ children }) => <>{children}</>,
+          code({ className, children }) {
+            const match = /language-(\w+)/.exec(className || '');
+            const raw = String(children);
+            const isBlock = match || raw.endsWith('\n');
+
+            if (isBlock) {
+              const code = raw.replace(/\n$/, '');
+              return (
+                <div className="relative group my-1">
+                  <CopyButton code={code} />
+                  <SyntaxHighlighter
+                    style={oneDark}
+                    language={match ? match[1] : 'text'}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      paddingTop: '2rem',
+                    }}
+                  >
+                    {code}
+                  </SyntaxHighlighter>
+                </div>
+              );
+            }
+
+            return (
+              <code className="bg-white/10 text-white/90 font-mono text-[0.8em] px-1.5 py-0.5 rounded">
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}

@@ -1,0 +1,474 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  online
+  away
+  dnd
+  offline
+
+  @@map("user_status")
+}
+
+enum MemberRole {
+  owner
+  admin
+  member
+
+  @@map("member_role")
+}
+
+enum NotificationType {
+  mention
+  reply
+  dm
+  keyword
+
+  @@map("notification_type")
+}
+
+enum ContextType {
+  channel
+  dm
+
+  @@map("context_type")
+}
+
+enum DocSource {
+  internal
+  notion
+  obsidian
+
+  @@map("doc_source")
+}
+
+enum TaskStatus {
+  backlog
+  todo
+  in_progress
+  review
+  done
+  cancelled
+
+  @@map("task_status")
+}
+
+enum TaskPriority {
+  critical
+  high
+  medium
+  low
+
+  @@map("task_priority")
+}
+
+enum TaskType {
+  feature
+  bug
+  art
+  design
+  infra
+  etc
+
+  @@map("task_type")
+}
+
+enum IntegrationType {
+  notion
+  obsidian
+  github_actions
+  jenkins
+  custom_ci
+
+  @@map("integration_type")
+}
+
+enum WebhookType {
+  incoming
+  ci_cd
+  bot
+
+  @@map("webhook_type")
+}
+
+model User {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  displayName  String     @map("display_name")
+  avatarUrl    String?    @map("avatar_url")
+  status       UserStatus @default(offline)
+  statusText   String?    @map("status_text")
+  lastSeenAt   DateTime?  @map("last_seen_at") @db.Timestamptz
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
+  createdChannels      Channel[]
+  channelMemberships   ChannelMember[]
+  directMemberships    DirectMember[]
+  sentMessages         Message[]         @relation("MessageSender")
+  reactions            Reaction[]
+  notifications        Notification[]
+  createdWebhooks      Webhook[]
+  createdDocuments     Document[]        @relation("DocumentCreator")
+  documentVersions     DocumentVersion[]
+  createdTasks         Task[]            @relation("TaskCreator")
+  assignedTasks        Task[]            @relation("TaskAssignee")
+  taskComments         TaskComment[]
+  integrations         Integration[]
+  bookmarks            Bookmark[]
+  pinnedMessages       PinnedMessage[]   @relation("MessagePinner")
+
+  @@index([email])
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String   @unique
+  iconUrl   String?  @map("icon_url")
+  ownerId   String   @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  owner               User                 @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members             WorkspaceMember[]
+  channels            Channel[]
+  directConversations DirectConversation[]
+  documents           Document[]
+  tasks               Task[]
+  webhooks            Webhook[]
+  integrations        Integration[]
+
+  @@index([slug])
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String     @map("workspace_id") @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  role        MemberRole @default(member)
+  joinedAt    DateTime   @default(now()) @map("joined_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Channel {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  createdBy   String   @map("created_by") @db.Uuid
+  name        String
+  description String?
+  isPrivate   Boolean  @default(false) @map("is_private")
+  isArchived  Boolean  @default(false) @map("is_archived")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator        User            @relation(fields: [createdBy], references: [id])
+  members        ChannelMember[]
+  webhooks       Webhook[]
+  pinnedMessages PinnedMessage[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+  @@map("channels")
+}
+
+model ChannelMember {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId  String    @map("channel_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  lastReadAt DateTime? @map("last_read_at") @db.Timestamptz
+  joinedAt   DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([channelId])
+  @@index([userId])
+  @@map("channel_members")
+}
+
+model DirectConversation {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  isGroup     Boolean  @default(false) @map("is_group")
+  name        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   DirectMember[]
+
+  @@index([workspaceId])
+  @@map("direct_conversations")
+}
+
+model DirectMember {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  lastReadAt     DateTime? @map("last_read_at") @db.Timestamptz
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+
+  conversation DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+  @@map("direct_members")
+}
+
+model Message {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  contextType ContextType @map("context_type")
+  contextId   String      @map("context_id") @db.Uuid
+  senderId    String      @map("sender_id") @db.Uuid
+  parentId    String?     @map("parent_id") @db.Uuid
+  content     String
+  metadata    Json        @default("{}")
+  isEdited    Boolean     @default(false) @map("is_edited")
+  isDeleted   Boolean     @default(false) @map("is_deleted")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  sender        User            @relation("MessageSender", fields: [senderId], references: [id])
+  parent        Message?        @relation("MessageThread", fields: [parentId], references: [id])
+  replies       Message[]       @relation("MessageThread")
+  attachments   Attachment[]
+  reactions     Reaction[]
+  notifications Notification[]
+  bookmarks     Bookmark[]
+  pins          PinnedMessage[]
+
+  @@index([contextType, contextId, createdAt(sort: Desc)])
+  @@index([parentId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model Attachment {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId    String   @map("message_id") @db.Uuid
+  fileUrl      String   @map("file_url")
+  fileName     String   @map("file_name")
+  mimeType     String   @map("mime_type")
+  fileSize     BigInt   @map("file_size")
+  thumbnailUrl String?  @map("thumbnail_url")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+model Reaction {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  emoji     String
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("reactions")
+}
+
+model Bookmark {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId])
+  @@map("bookmarks")
+}
+
+model PinnedMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId String   @map("channel_id") @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  pinnedBy  String   @map("pinned_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinner  User    @relation("MessagePinner", fields: [pinnedBy], references: [id])
+
+  @@unique([channelId, messageId])
+  @@index([channelId])
+  @@map("pinned_messages")
+}
+
+model Notification {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  messageId String?          @map("message_id") @db.Uuid
+  type      NotificationType
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message? @relation(fields: [messageId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model Webhook {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String      @map("workspace_id") @db.Uuid
+  channelId       String?     @map("channel_id") @db.Uuid
+  name            String
+  token           String      @unique @default(dbgenerated("encode(gen_random_bytes(32), 'hex')"))
+  isActive        Boolean     @default(true) @map("is_active")
+  type            WebhookType @default(incoming)
+  lastTriggeredAt DateTime?   @map("last_triggered_at") @db.Timestamptz
+  createdBy       String      @map("created_by") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel?  @relation(fields: [channelId], references: [id])
+  creator   User      @relation(fields: [createdBy], references: [id])
+
+  @@index([workspaceId])
+  @@index([token])
+  @@map("webhooks")
+}
+
+model Document {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  createdBy   String    @map("created_by") @db.Uuid
+  title       String
+  content     String    @default("")
+  source      DocSource @default(internal)
+  externalId  String?   @map("external_id")
+  externalUrl String?   @map("external_url")
+  isArchived  Boolean   @default(false) @map("is_archived")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User              @relation("DocumentCreator", fields: [createdBy], references: [id])
+  versions  DocumentVersion[]
+  tasks     Task[]
+
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  editedBy   String   @map("edited_by") @db.Uuid
+  content    String
+  summary    String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  editor   User     @relation(fields: [editedBy], references: [id])
+
+  @@index([documentId, createdAt(sort: Desc)])
+  @@map("document_versions")
+}
+
+model Task {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String       @map("workspace_id") @db.Uuid
+  createdBy   String       @map("created_by") @db.Uuid
+  assigneeId  String?      @map("assignee_id") @db.Uuid
+  title       String
+  description String?
+  status      TaskStatus   @default(backlog)
+  priority    TaskPriority @default(medium)
+  type        TaskType     @default(etc)
+  dueDate     DateTime?    @map("due_date") @db.Date
+  seqNum      Int          @default(autoincrement()) @map("seq_num")
+  linkedDocId String?      @map("linked_doc_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User          @relation("TaskCreator", fields: [createdBy], references: [id])
+  assignee  User?         @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  linkedDoc Document?     @relation(fields: [linkedDocId], references: [id])
+  comments  TaskComment[]
+
+  @@index([workspaceId, status, priority])
+  @@index([assigneeId])
+  @@map("tasks")
+}
+
+model TaskComment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  content   String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("task_comments")
+}
+
+model Integration {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String          @map("workspace_id") @db.Uuid
+  type        IntegrationType
+  name        String
+  config      Json            @default("{}")
+  isActive    Boolean         @default(true) @map("is_active")
+  createdBy   String          @map("created_by") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User      @relation(fields: [createdBy], references: [id])
+
+  @@unique([workspaceId, type, name])
+  @@index([workspaceId])
+  @@map("integrations")
+}
+
+model LinkPreview {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  url         String   @unique
+  title       String?
+  description String?
+  imageUrl    String?  @map("image_url")
+  siteName    String?  @map("site_name")
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz
+  expiresAt   DateTime @default(dbgenerated("NOW() + INTERVAL '24 hours'")) @map("expires_at") @db.Timestamptz
+
+  @@index([url])
+  @@index([expiresAt])
+  @@map("link_previews")
+}

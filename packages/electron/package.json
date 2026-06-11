@@ -1,0 +1,74 @@
+{
+  "name": "electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "node scripts/dev-electron.cjs",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.gamedev.messenger",
+    "productName": "GameDev Messenger",
+    "files": [
+      "dist/**"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Office"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://your-update-server.com/updates"
+    }
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "electron-auto-launch": "^5.0.5",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.2.1",
+    "sharp": "^0.33.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.1"
+  }
+}

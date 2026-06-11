@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/.pnpm-store
+**/*.log
+dist
+**/dist
+.git
+.gitignore
+*.md
+packages/renderer
+packages/electron

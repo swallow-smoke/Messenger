@@ -1,0 +1,15 @@
+{
+  "name": "gamedev-messenger",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter renderer dev\" \"pnpm --filter electron dev\"",
+    "build": "pnpm --filter server build && pnpm --filter renderer build && pnpm --filter electron build",
+    "dist": "pnpm --filter renderer build && pnpm --filter electron dist",
+    "db:migrate": "pnpm --filter server prisma migrate dev",
+    "db:seed": "pnpm --filter server prisma db seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
