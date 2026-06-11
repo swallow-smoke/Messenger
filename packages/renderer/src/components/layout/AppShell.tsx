@@ -28,9 +28,6 @@ interface Workspace {
 }
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
-const DARK_MODE_KEY = 'darkMode';
-const ACCENT_COLOR_KEY = 'accentColor';
-const FONT_SIZE_KEY = 'fontSize';
 
 export function AppShell(): React.ReactElement {
   useSocket();
@@ -41,10 +38,7 @@ export function AppShell(): React.ReactElement {
   const [threadMsg, setThreadMsg] = useState<Message | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(224);
-  const [accentColor, setAccentColor] = useState('#5865F2');
-  const [fontSize, setFontSize] = useState(14);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -56,20 +50,10 @@ export function AppShell(): React.ReactElement {
   const { fetchChannels, activeChannelId, setActive } = useChannelsStore();
   const { fetchConversations } = useDMStore();
 
-  // Load persisted settings
+  // Load sidebar width
   useEffect(() => {
-    Promise.all([
-      storage.get(DARK_MODE_KEY),
-      storage.get(SIDEBAR_WIDTH_KEY),
-      storage.get(ACCENT_COLOR_KEY),
-      storage.get(FONT_SIZE_KEY),
-    ]).then(([dark, w, accent, fs]) => {
-      const isDark = dark !== 'false';
-      setDarkMode(isDark);
-      applyDarkMode(isDark);
+    storage.get(SIDEBAR_WIDTH_KEY).then((w) => {
       if (w) setSidebarWidth(Number(w));
-      if (accent) { setAccentColor(accent); applyAccentColor(accent); }
-      if (fs) { setFontSize(Number(fs)); document.documentElement.style.fontSize = `${fs}px`; }
     }).catch(() => {});
   }, []);
 
@@ -79,32 +63,6 @@ export function AppShell(): React.ReactElement {
     window.electron.updater.onUpdateAvailable(() => setUpdateAvailable(true));
     window.electron.updater.onUpdateDownloaded(() => setUpdateDownloaded(true));
   }, []);
-
-  function applyDarkMode(dark: boolean): void {
-    if (dark) {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.remove('dark');
-      document.documentElement.classList.add('light');
-    }
-  }
-
-  function applyAccentColor(color: string): void {
-    document.documentElement.style.setProperty('--accent', color);
-  }
-
-  function toggleDarkMode(): void {
-    const next = !darkMode;
-    setDarkMode(next);
-    applyDarkMode(next);
-    void storage.set(DARK_MODE_KEY, String(next));
-  }
-
-  function handleAccentColorChange(color: string): void {
-    setAccentColor(color);
-    applyAccentColor(color);
-  }
 
   function handleSidebarWidth(w: number): void {
     setSidebarWidth(w);
@@ -200,10 +158,7 @@ export function AppShell(): React.ReactElement {
   };
 
   return (
-    <div
-      className={`flex h-screen w-screen overflow-hidden ${darkMode ? '' : 'light'}`}
-      style={{ background: darkMode ? '#222529' : '#f8f9fa', color: darkMode ? '#fff' : '#111' }}
-    >
+    <div className="flex h-screen w-screen overflow-hidden">
       {/* Modals */}
       {showCommandPalette && (
         <CommandPalette onClose={() => setShowCommandPalette(false)} onSelectChannel={handleSelectChannel} />
@@ -216,17 +171,7 @@ export function AppShell(): React.ReactElement {
         <ChannelCreateModal workspaceId={activeWorkspaceId} onClose={() => setShowCreateChannel(false)} />
       )}
       {showProfile && <ProfileEditModal onClose={() => setShowProfile(false)} />}
-      {showSettings && (
-        <SettingsPage
-          onClose={() => setShowSettings(false)}
-          darkMode={darkMode}
-          onToggleDarkMode={toggleDarkMode}
-          accentColor={accentColor}
-          onAccentColorChange={handleAccentColorChange}
-          fontSize={fontSize}
-          onFontSizeChange={setFontSize}
-        />
-      )}
+      {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
 
       {/* Update banners */}
       {updateDownloaded && (
@@ -258,8 +203,6 @@ export function AppShell(): React.ReactElement {
         workspaceId={activeWorkspaceId ?? ''}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        darkMode={darkMode}
-        onToggleDarkMode={toggleDarkMode}
         width={sidebarWidth}
         onWidthChange={handleSidebarWidth}
         onCreateChannel={() => setShowCreateChannel(true)}
@@ -268,12 +211,12 @@ export function AppShell(): React.ReactElement {
         onSelectDM={handleSelectDM}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex flex-1 overflow-hidden" data-main="">
+        <div className="flex-1 flex flex-col overflow-hidden bg-[var(--bg-primary)]">
           {renderMainContent()}
         </div>
         {threadMsg && (
-          <ThreadPanel parentId={threadMsg.id} onClose={() => setThreadMsg(null)} />
+          <ThreadPanel parentId={threadMsg.id} contextId={threadMsg.contextId} onClose={() => setThreadMsg(null)} />
         )}
       </div>
     </div>

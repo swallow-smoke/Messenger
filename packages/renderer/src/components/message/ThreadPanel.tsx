@@ -5,10 +5,11 @@ import { MessageInput } from './MessageInput';
 
 interface Props {
   parentId: string;
+  contextId: string;
   onClose(): void;
 }
 
-export function ThreadPanel({ parentId, onClose }: Props): React.ReactElement {
+export function ThreadPanel({ parentId, contextId, onClose }: Props): React.ReactElement {
   const { threads, fetchThread } = useMessagesStore();
   const replies = threads[parentId] ?? [];
 
@@ -27,7 +28,7 @@ export function ThreadPanel({ parentId, onClose }: Props): React.ReactElement {
           <MessageItem key={msg.id} message={msg} onReply={() => {}} />
         ))}
       </div>
-      <MessageInput contextType="channel" contextId={replies[0]?.contextId ?? ''} parentId={parentId} placeholder="Reply..." />
+      <MessageInput contextType="channel" contextId={contextId} parentId={parentId} placeholder="Reply..." />
     </div>
   );
 }

@@ -28,19 +28,21 @@ export interface Message {
   metadata: Record<string, unknown>;
   isEdited: boolean;
   isDeleted: boolean;
-  isPending?: boolean; // optimistic flag
+  isPending?: boolean;
   createdAt: string;
   updatedAt: string;
   attachments: Attachment[];
   reactions: Reaction[];
   _count?: { replies: number };
   isPinned?: boolean;
+  clientTempId?: string;
 }
 
 interface MessagesState {
   messages: Record<string, Message[]>;
   threads: Record<string, Message[]>;
-  pinnedMessages: Record<string, Message | null>; // channelId → pinned
+  pinnedMessages: Record<string, Message | null>;
+  loaded: Record<string, boolean>;
   fetchMessages(channelId: string, before?: string): Promise<void>;
   fetchThread(parentId: string): Promise<void>;
   appendMessage(message: Message): void;
@@ -58,8 +60,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   messages: {},
   threads: {},
   pinnedMessages: {},
+  loaded: {},
 
   async fetchMessages(channelId, before) {
+    // Skip initial fetch if channel already loaded (use cache)
+    if (!before && get().loaded[channelId]) return;
+
     const { data } = await api.get(`/messages/${channelId}/messages`, {
       params: { ...(before ? { before } : {}), limit: 50 },
     });
@@ -70,6 +76,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           ? [...(data as Message[]), ...(s.messages[channelId] ?? [])]
           : (data as Message[]),
       },
+      loaded: { ...s.loaded, [channelId]: true },
     }));
   },
 
@@ -83,21 +90,53 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       ? get().threads[message.parentId] ?? []
       : get().messages[message.contextId] ?? [];
 
-    // Skip if already in store (dedup for sender who gets message:new via io.to broadcast)
+    // Already in store by real ID
     if (list.some((m) => m.id === message.id)) return;
+
+    // Replace matching temp message (dedup optimistic update from socket broadcast)
+    if (message.clientTempId) {
+      const tempIndex = list.findIndex((m) => m.id === message.clientTempId);
+      if (tempIndex !== -1) {
+        const clean = { ...message };
+        delete clean.clientTempId;
+        if (message.parentId) {
+          set((s) => ({
+            threads: {
+              ...s.threads,
+              [message.parentId!]: (s.threads[message.parentId!] ?? []).map((m) =>
+                m.id === message.clientTempId ? clean : m
+              ),
+            },
+          }));
+        } else {
+          set((s) => ({
+            messages: {
+              ...s.messages,
+              [message.contextId]: (s.messages[message.contextId] ?? []).map((m) =>
+                m.id === message.clientTempId ? clean : m
+              ),
+            },
+          }));
+        }
+        return;
+      }
+    }
+
+    const clean = { ...message };
+    delete clean.clientTempId;
 
     if (message.parentId) {
       set((s) => ({
         threads: {
           ...s.threads,
-          [message.parentId!]: [...(s.threads[message.parentId!] ?? []), message],
+          [message.parentId!]: [...(s.threads[message.parentId!] ?? []), clean],
         },
       }));
     } else {
       set((s) => ({
         messages: {
           ...s.messages,
-          [message.contextId]: [...(s.messages[message.contextId] ?? []), message],
+          [message.contextId]: [...(s.messages[message.contextId] ?? []), clean],
         },
       }));
     }

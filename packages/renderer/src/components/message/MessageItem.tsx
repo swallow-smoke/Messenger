@@ -3,13 +3,15 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import type { Message } from '../../store/messages';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import type { Message, Attachment } from '../../store/messages';
 import { useMessagesStore } from '../../store/messages';
 import { ReactionBar } from './ReactionBar';
 import { EmbedCard } from './EmbedCard';
 import { MarkdownContent } from './MarkdownContent';
 import { UserAvatar } from '../user/UserAvatar';
-import { LightboxModal } from '../common/LightboxModal';
+import { Lightbox } from './Lightbox';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useAuthStore } from '../../store/auth';
 import api from '../../lib/api';
@@ -23,23 +25,110 @@ interface Props {
   message: Message;
   onReply(msg: Message): void;
   onPin?(msg: Message): void;
+  isGrouped?: boolean;
 }
 
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
-
 function isImage(mimeType: string) {
-  return IMAGE_TYPES.has(mimeType);
+  return mimeType.startsWith('image/');
+}
+
+function is3D(fileName: string) {
+  return fileName.endsWith('.glb') || fileName.endsWith('.fbx') || fileName.endsWith('.gltf');
+}
+
+function isMarkdown(fileName: string) {
+  return fileName.endsWith('.md') || fileName.endsWith('.markdown');
 }
 
 function fileIcon(mimeType: string, fileName: string): string {
-  if (fileName.endsWith('.glb') || fileName.endsWith('.fbx')) return '🎮';
-  if (fileName.endsWith('.md')) return '📄';
+  if (is3D(fileName)) return '🎮';
+  if (isMarkdown(fileName)) return '📄';
   if (fileName.endsWith('.psd') || fileName.endsWith('.ai')) return '🎨';
   if (mimeType.startsWith('video/')) return '🎬';
   return '📎';
 }
 
-export function MessageItem({ message, onReply, onPin }: Props): React.ReactElement {
+// Markdown viewer modal for .md file attachments
+function MarkdownFileModal({ attachment, onClose }: { attachment: Attachment; onClose(): void }): React.ReactElement {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetch(attachment.fileUrl)
+      .then((r) => r.text())
+      .then(setContent)
+      .catch(() => setError(true));
+  }, [attachment.fileUrl]);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-base">📄</span>
+            <span className="font-medium text-sm">{attachment.fileName}</span>
+          </div>
+          <button onClick={onClose} className="text-white/50 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+        <div className="flex-1 overflow-auto p-6">
+          {error ? (
+            <p className="text-white/40 text-sm text-center py-8">파일을 불러올 수 없습니다.</p>
+          ) : content === null ? (
+            <p className="text-white/40 text-sm text-center py-8">로드 중...</p>
+          ) : (
+            <div className="prose prose-invert prose-sm max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3D file chip with thumbnail attempt
+function Asset3DChip({ attachment }: { attachment: Attachment }): React.ReactElement {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(attachment.thumbnailUrl ?? null);
+
+  useEffect(() => {
+    if (thumbnailUrl || !window.electron?.asset?.getThumbnail) return;
+    window.electron.asset.getThumbnail(attachment.fileUrl)
+      .then((url: string | null) => { if (url) setThumbnailUrl(url); })
+      .catch(() => {});
+  }, [attachment.fileUrl, thumbnailUrl]);
+
+  return (
+    <a
+      href={attachment.fileUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => {
+        e.preventDefault();
+        if (window.electron?.shell) void window.electron.shell.openExternal(attachment.fileUrl);
+        else window.open(attachment.fileUrl, '_blank');
+      }}
+      className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+    >
+      {thumbnailUrl ? (
+        <img src={thumbnailUrl} alt="" className="w-8 h-8 rounded object-cover" />
+      ) : (
+        <span className="text-base">🎮</span>
+      )}
+      <div>
+        <div className="font-medium">{attachment.fileName}</div>
+        <div className="text-white/40">{(attachment.fileSize / 1024).toFixed(0)} KB</div>
+      </div>
+    </a>
+  );
+}
+
+export function MessageItem({ message, onReply, onPin, isGrouped = false }: Props): React.ReactElement {
   const { user } = useAuthStore();
   const { editMessage, deleteMessage: softDelete, setPinned, pinnedMessages } = useMessagesStore();
 
@@ -49,7 +138,8 @@ export function MessageItem({ message, onReply, onPin }: Props): React.ReactElem
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; fileName: string } | null>(null);
+  const [mdViewerAttachment, setMdViewerAttachment] = useState<Attachment | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   const embed = (message.metadata as Record<string, unknown>).embed;
@@ -134,8 +224,14 @@ export function MessageItem({ message, onReply, onPin }: Props): React.ReactElem
 
   return (
     <>
-      {lightboxSrc && (
-        <LightboxModal src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      {lightbox && (
+        <Lightbox src={lightbox.src} fileName={lightbox.fileName} onClose={() => setLightbox(null)} />
+      )}
+      {mdViewerAttachment && (
+        <MarkdownFileModal
+          attachment={mdViewerAttachment}
+          onClose={() => setMdViewerAttachment(null)}
+        />
       )}
       {confirmDelete && (
         <ConfirmDialog
@@ -215,7 +311,7 @@ export function MessageItem({ message, onReply, onPin }: Props): React.ReactElem
       )}
 
       <div
-        className={`flex gap-3 px-4 py-1.5 hover:bg-white/5 group relative transition-colors ${
+        className={`flex gap-3 px-4 ${isGrouped ? 'py-0.5' : 'py-1.5'} hover:bg-white/5 group relative transition-colors ${
           message.isPending ? 'opacity-60' : ''
         } ${isPinned ? 'border-l-2 border-accent/40' : ''}`}
         onMouseEnter={() => setHovered(true)}
@@ -223,26 +319,36 @@ export function MessageItem({ message, onReply, onPin }: Props): React.ReactElem
         onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick}
       >
-        <UserAvatar
-          userId={message.senderId}
-          displayName={message.sender.displayName}
-          avatarUrl={message.sender.avatarUrl}
-          size="md"
-          showStatus
-        />
+        {isGrouped ? (
+          <div className="w-9 flex-shrink-0 flex items-center justify-center">
+            <span className="text-[10px] text-white/0 group-hover:text-white/30 transition-colors select-none leading-none">
+              {format(createdAt, 'HH:mm')}
+            </span>
+          </div>
+        ) : (
+          <UserAvatar
+            userId={message.senderId}
+            displayName={message.sender.displayName}
+            avatarUrl={message.sender.avatarUrl}
+            size="md"
+            showStatus
+          />
+        )}
 
         <div className="flex flex-col min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="font-semibold text-sm">{message.sender.displayName}</span>
-            <span
-              className="text-xs text-white/40 cursor-default"
-              title={fullTime}
-            >
-              {relativeTime}
-            </span>
-            {message.isEdited && <span className="text-xs text-white/30">(편집됨)</span>}
-            {message.isPending && <span className="text-xs text-white/30">전송 중...</span>}
-          </div>
+          {!isGrouped && (
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold text-sm">{message.sender.displayName}</span>
+              <span
+                className="text-xs text-white/40 cursor-default"
+                title={fullTime}
+              >
+                {relativeTime}
+              </span>
+              {message.isEdited && <span className="text-xs text-white/30">(편집됨)</span>}
+              {message.isPending && <span className="text-xs text-white/30">전송 중...</span>}
+            </div>
+          )}
 
           {message.isDeleted ? (
             <p className="text-white/30 italic text-sm">삭제된 메시지입니다.</p>
@@ -266,18 +372,56 @@ export function MessageItem({ message, onReply, onPin }: Props): React.ReactElem
           ) : (
             <>
               <MarkdownContent content={message.content} />
+              {isGrouped && (message.isEdited || message.isPending) && (
+                <div className="flex gap-1 text-xs text-white/30">
+                  {message.isEdited && <span>(편집됨)</span>}
+                  {message.isPending && <span>전송 중...</span>}
+                </div>
+              )}
               {embed && <EmbedCard embed={embed as Parameters<typeof EmbedCard>[0]['embed']} />}
               {message.attachments.map((a) => {
                 if (isImage(a.mimeType)) {
                   return (
                     <div key={a.id} className="mt-1 inline-block">
                       <img
-                        src={a.thumbnailUrl ?? a.fileUrl}
+                        src={a.fileUrl}
                         alt={a.fileName}
-                        className="max-w-xs max-h-48 rounded cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => setLightboxSrc(a.fileUrl)}
+                        className="max-w-[400px] max-h-[300px] rounded cursor-pointer hover:opacity-90 transition-opacity object-cover"
+                        onClick={() => setLightbox({ src: a.fileUrl, fileName: a.fileName })}
+                        onError={(e) => {
+                          const el = e.currentTarget;
+                          el.style.display = 'none';
+                          el.nextElementSibling?.classList.remove('hidden');
+                        }}
                       />
+                      <a
+                        href={a.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="hidden inline-flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70"
+                      >
+                        <span className="text-base">🖼️</span>
+                        <span className="font-medium">{a.fileName}</span>
+                      </a>
                     </div>
+                  );
+                }
+                if (is3D(a.fileName)) {
+                  return <Asset3DChip key={a.id} attachment={a} />;
+                }
+                if (isMarkdown(a.fileName)) {
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => setMdViewerAttachment(a)}
+                      className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                    >
+                      <span className="text-base">📄</span>
+                      <div>
+                        <div className="font-medium">{a.fileName}</div>
+                        <div className="text-white/40">{(a.fileSize / 1024).toFixed(0)} KB · 클릭하여 미리보기</div>
+                      </div>
+                    </button>
                   );
                 }
                 return (

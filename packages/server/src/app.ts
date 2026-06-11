@@ -24,6 +24,9 @@ import { ensureBucket } from './lib/minio';
 const app: Express = express();
 const httpServer = http.createServer(app);
 
+app.set('json replacer', (_key: string, value: unknown) =>
+  typeof value === 'bigint' ? Number(value) : value
+);
 app.use(cors({ origin: '*', credentials: true }));
 app.use(helmet());
 app.use(morgan('dev'));

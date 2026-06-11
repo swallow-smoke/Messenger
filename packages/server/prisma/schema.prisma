@@ -127,6 +127,7 @@ model User {
   integrations         Integration[]
   bookmarks            Bookmark[]
   pinnedMessages       PinnedMessage[]   @relation("MessagePinner")
+  documentComments     DocumentComment[]
 
   @@index([email])
   @@map("users")
@@ -345,7 +346,7 @@ model Webhook {
   workspaceId     String      @map("workspace_id") @db.Uuid
   channelId       String?     @map("channel_id") @db.Uuid
   name            String
-  token           String      @unique @default(dbgenerated("encode(gen_random_bytes(32), 'hex')"))
+  token           String      @unique
   isActive        Boolean     @default(true) @map("is_active")
   type            WebhookType @default(incoming)
   lastTriggeredAt DateTime?   @map("last_triggered_at") @db.Timestamptz
@@ -371,6 +372,7 @@ model Document {
   externalId  String?   @map("external_id")
   externalUrl String?   @map("external_url")
   isArchived  Boolean   @default(false) @map("is_archived")
+  metadata    Json      @default("{}") @db.JsonB
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -378,9 +380,28 @@ model Document {
   creator   User              @relation("DocumentCreator", fields: [createdBy], references: [id])
   versions  DocumentVersion[]
   tasks     Task[]
+  comments  DocumentComment[]
 
   @@index([workspaceId, updatedAt(sort: Desc)])
   @@map("documents")
+}
+
+model DocumentComment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String   @map("document_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  parentId   String?  @map("parent_id") @db.Uuid
+  content    String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  document Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  author   User              @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  parent   DocumentComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  DocumentComment[] @relation("CommentReplies")
+
+  @@index([documentId, createdAt(sort: Asc)])
+  @@map("document_comments")
 }
 
 model DocumentVersion {

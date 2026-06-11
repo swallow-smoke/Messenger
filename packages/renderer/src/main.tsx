@@ -1,14 +1,29 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, useToasterStore, toast } from 'react-hot-toast';
 import { App } from './app';
 import './index.css';
+
+const MAX_TOASTS = 3;
+
+function ToastLimiter(): null {
+  const { toasts } = useToasterStore();
+  useEffect(() => {
+    const visible = toasts.filter((t) => t.visible);
+    if (visible.length > MAX_TOASTS) {
+      toast.dismiss(visible[0].id);
+    }
+  }, [toasts]);
+  return null;
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
+    <ToastLimiter />
     <Toaster
       position="bottom-right"
+      gutter={8}
       toastOptions={{
         style: {
           background: '#2d3039',

@@ -45,6 +45,7 @@ services:
       DATABASE_URL: postgresql://dev:dev@postgres:5432/gamedev_messenger
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
+      MINIO_PUBLIC_URL: http://localhost:9000
     ports: ["4000:4000"]
     restart: unless-stopped
     depends_on:

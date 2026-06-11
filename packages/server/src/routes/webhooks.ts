@@ -1,5 +1,6 @@
 import express, { type Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { randomBytes } from 'crypto';
 import type { InputJsonValue } from '@prisma/client/runtime/library';
 import { prisma } from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -18,8 +19,9 @@ const createSchema = z.object({
 router.post('/', requireAuth, validate(createSchema), async (req: AuthRequest, res: Response) => {
   try {
     const { workspaceId, channelId, name, type } = req.body as z.infer<typeof createSchema>;
+    const token = randomBytes(32).toString('hex');
     const webhook = await prisma.webhook.create({
-      data: { workspaceId, channelId, name, type: type ?? 'incoming', createdBy: req.user!.id },
+      data: { workspaceId, channelId, name, type: type ?? 'incoming', createdBy: req.user!.id, token },
     });
     res.status(201).json(webhook);
   } catch {

@@ -2,13 +2,13 @@ import type { Config } from 'tailwindcss';
 
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
-  darkMode: 'class',
+  darkMode: ['class', '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
-        sidebar: '#1a1d21',
-        surface: '#222529',
-        accent: '#4a9eff',
+        sidebar: 'var(--sidebar-bg)',
+        surface: 'var(--surface)',
+        accent: 'rgb(var(--accent-rgb) / <alpha-value>)',
       },
     },
   },

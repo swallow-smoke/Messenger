@@ -29,5 +29,17 @@ export async function uploadBuffer(
 }
 
 export async function getPresignedUrl(objectName: string, expiry = 3600): Promise<string> {
-  return minioClient.presignedGetObject(BUCKET, objectName, expiry);
+  const url = await minioClient.presignedGetObject(BUCKET, objectName, expiry);
+  const publicUrl = process.env.MINIO_PUBLIC_URL;
+  if (!publicUrl) return url;
+  try {
+    const parsed = new URL(url);
+    const pub = new URL(publicUrl);
+    parsed.protocol = pub.protocol;
+    parsed.hostname = pub.hostname;
+    parsed.port = pub.port;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }

@@ -34,6 +34,7 @@ export function useSocket(): void {
         }
         return;
       }
+      // appendMessage handles clientTempId dedup internally
       appendMessage(msg);
       if (msg.contextId !== activeChannelId && !msg.parentId) {
         incrementUnread(msg.contextId);
@@ -82,6 +83,13 @@ export function useSocket(): void {
       updateDocMeta(id, { title, updatedAt });
     });
 
+    // Reconnect: rejoin all active rooms
+    socket.on('connect', () => {
+      const { activeChannelId: chId } = useChannelsStore.getState();
+      const { activeConversationId: convId } = useDMStore.getState();
+      if (chId) socket.emit('channel:join', chId);
+      if (convId) socket.emit('channel:join', convId);
+    });
 
     return () => {
       socket.off('message:new');
@@ -99,6 +107,7 @@ export function useSocket(): void {
       socket.off('task:updated');
       socket.off('task:status-changed');
       socket.off('doc:updated');
+      socket.off('connect');
       disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

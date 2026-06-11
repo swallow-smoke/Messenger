@@ -3,16 +3,43 @@ import { isAxiosError } from 'axios';
 import { AppShell } from './components/layout/AppShell';
 import { RegisterPage } from './pages/RegisterPage';
 import { useAuthStore } from './store/auth';
+import { useSettingsStore, BG_GRADIENTS } from './store/settings';
 
 type AuthPage = 'login' | 'register';
 
+function AppBackground(): React.ReactElement | null {
+  const { settings } = useSettingsStore();
+  if (settings.bgType === 'image' && settings.bgImage) {
+    return (
+      <div
+        className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url(${settings.bgImage})`,
+          filter: `brightness(${settings.bgBrightness}%)`,
+        }}
+      />
+    );
+  }
+  if (settings.bgType === 'gradient') {
+    return (
+      <div
+        className="fixed inset-0 -z-10"
+        style={{ background: BG_GRADIENTS[settings.bgGradient] ?? BG_GRADIENTS[0] }}
+      />
+    );
+  }
+  return null;
+}
+
 export function App(): React.ReactElement {
   const { user, isLoading, loadFromStorage } = useAuthStore();
+  const { load: loadSettings } = useSettingsStore();
   const [authPage, setAuthPage] = useState<AuthPage>('login');
 
   useEffect(() => {
     void loadFromStorage();
-  }, [loadFromStorage]);
+    void loadSettings();
+  }, [loadFromStorage, loadSettings]);
 
   if (isLoading) {
     return (
@@ -32,7 +59,12 @@ export function App(): React.ReactElement {
     return <LoginPage onGoToRegister={() => setAuthPage('register')} />;
   }
 
-  return <AppShell />;
+  return (
+    <>
+      <AppBackground />
+      <AppShell />
+    </>
+  );
 }
 
 interface LoginPageProps {

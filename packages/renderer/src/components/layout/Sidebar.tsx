@@ -3,6 +3,7 @@ import { useChannelsStore } from '../../store/channels';
 import { useAuthStore } from '../../store/auth';
 import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
+import { useSettingsStore, resolveTheme } from '../../store/settings';
 import { UserAvatar } from '../user/UserAvatar';
 import { getSocket } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -20,8 +21,6 @@ interface Props {
   workspaceId: string;
   activeTab: Tab;
   onTabChange(tab: Tab): void;
-  darkMode: boolean;
-  onToggleDarkMode(): void;
   width: number;
   onWidthChange(w: number): void;
   onCreateChannel(): void;
@@ -48,8 +47,6 @@ export function Sidebar({
   workspaceId: _workspaceId,
   activeTab,
   onTabChange,
-  darkMode,
-  onToggleDarkMode,
   width,
   onWidthChange,
   onCreateChannel,
@@ -61,8 +58,11 @@ export function Sidebar({
   const { user, updateStatus, logout } = useAuthStore();
   const presences = usePresenceStore((s) => s.presences);
   const { conversations, activeConversationId, setActiveConversation } = useDMStore();
+  const { settings, update } = useSettingsStore();
   const onlineCount = Object.values(presences).filter((p) => p.status === 'online').length;
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const resolved = resolveTheme(settings.theme);
 
   const dragStart = useRef<number | null>(null);
   const dragInitialWidth = useRef<number>(width);
@@ -104,8 +104,12 @@ export function Sidebar({
     await logout();
   }
 
+  function toggleTheme(): void {
+    update({ theme: resolved === 'dark' ? 'light' : 'dark' });
+  }
+
   return (
-    <div className="flex h-full" style={{ width }}>
+    <div className="flex h-full" style={{ width }} data-sidebar="">
       <div className="flex flex-col flex-1 bg-sidebar border-r border-white/10 h-full overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-white/10 flex-shrink-0">
@@ -243,7 +247,7 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Footer: user + dark mode */}
+        {/* Footer: user + theme toggle */}
         <div className="flex-shrink-0 border-t border-white/10 px-2 py-2">
           {user && (
             <div className="relative mb-1">
@@ -266,7 +270,6 @@ export function Sidebar({
                 </svg>
               </button>
 
-              {/* User menu dropdown */}
               {showUserMenu && (
                 <div className="absolute bottom-10 left-0 right-0 bg-surface border border-white/15 rounded-xl shadow-2xl py-1 z-50">
                   <button
@@ -305,13 +308,12 @@ export function Sidebar({
             </div>
           )}
 
-          {/* Dark/light mode toggle */}
           <button
-            onClick={onToggleDarkMode}
+            onClick={toggleTheme}
             className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-white/50 hover:text-white/80 hover:bg-white/5 rounded transition-colors"
-            title={darkMode ? '라이트 모드' : '다크 모드'}
+            title={resolved === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
           >
-            {darkMode ? (
+            {resolved === 'dark' ? (
               <>
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />

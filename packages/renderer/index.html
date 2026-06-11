@@ -1,11 +1,30 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GameDev Messenger</title>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('app_settings');
+          var s = raw ? JSON.parse(raw) : {};
+          var theme = s.theme || 'dark';
+          var resolved = theme === 'system'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : theme;
+          document.documentElement.setAttribute('data-theme', resolved);
+          if (s.accentRgb) document.documentElement.style.setProperty('--accent-rgb', s.accentRgb);
+          if (s.accentColor) document.documentElement.style.setProperty('--accent', s.accentColor);
+          var fontMap = { small: '13px', normal: '15px', large: '17px' };
+          if (s.messageFontSize && fontMap[s.messageFontSize]) {
+            document.documentElement.style.setProperty('--message-font-size', fontMap[s.messageFontSize]);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-surface text-white">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

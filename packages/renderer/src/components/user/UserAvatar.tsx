@@ -12,17 +12,19 @@ interface Props {
   userId: string;
   displayName: string;
   avatarUrl?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   showStatus?: boolean;
 }
 
 const SIZE = {
+  xs: 'w-4 h-4 text-[8px]',
   sm: 'w-6 h-6 text-[10px]',
   md: 'w-9 h-9 text-sm',
   lg: 'w-12 h-12 text-base',
 };
 
 const DOT_SIZE = {
+  xs: 'w-1.5 h-1.5 -bottom-0.5 -right-0.5',
   sm: 'w-2 h-2 -bottom-0.5 -right-0.5',
   md: 'w-2.5 h-2.5 bottom-0 right-0',
   lg: 'w-3 h-3 bottom-0 right-0',

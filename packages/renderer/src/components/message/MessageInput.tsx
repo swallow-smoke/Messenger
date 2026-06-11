@@ -25,7 +25,7 @@ interface Props {
 interface PendingFile {
   file: File;
   progress: number;
-  uploaded?: { url: string; thumbnailUrl?: string; fileName: string; mimeType: string; fileSize: number };
+  uploaded?: { file_url: string; thumbnail_url?: string | null; file_name: string; mime_type: string; file_size: number };
   error?: string;
 }
 
@@ -207,6 +207,12 @@ export function MessageInput({ contextType, contextId, parentId, placeholder }: 
 
     if (!user) return;
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!contextId || !UUID_RE.test(contextId)) {
+      toast.error('채널 ID가 올바르지 않습니다');
+      return;
+    }
+
     const tempId = `__temp_${Date.now()}`;
     const now = new Date().toISOString();
     const optimistic: Message = {
@@ -225,11 +231,11 @@ export function MessageInput({ contextType, contextId, parentId, placeholder }: 
       updatedAt: now,
       attachments: uploaded.map((u, i) => ({
         id: `__att_${i}`,
-        fileUrl: u.url,
-        fileName: u.fileName,
-        mimeType: u.mimeType,
-        fileSize: u.fileSize,
-        thumbnailUrl: u.thumbnailUrl,
+        fileUrl: u.file_url,
+        fileName: u.file_name,
+        mimeType: u.mime_type,
+        fileSize: u.file_size,
+        thumbnailUrl: u.thumbnail_url ?? null,
       })) as Attachment[],
       reactions: [],
     };
@@ -249,6 +255,7 @@ export function MessageInput({ contextType, contextId, parentId, placeholder }: 
         content: content || ' ',
         parentId,
         metadata: uploaded.length ? { attachments: uploaded } : undefined,
+        clientTempId: tempId,
       },
       (res: { ok: boolean; message?: Message; error?: string }) => {
         if (res.ok && res.message) {

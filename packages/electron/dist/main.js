@@ -127,7 +127,7 @@ const config = {
     minWidth: 900,
     minHeight: 600
   },
-  csp: `default-src 'self' http://localhost:4000 ws://localhost:4000 'unsafe-inline' 'unsafe-eval'`
+  csp: `default-src 'self' http://localhost:4000 http://localhost:9000 ws://localhost:4000 'unsafe-inline' 'unsafe-eval'`
 };
 const store = new Store();
 let mainWindow = null;

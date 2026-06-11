@@ -66,7 +66,7 @@ function MessageSearchBar({
 }
 
 export function MessageFeed({ channelId, onOpenThread }: Props): React.ReactElement {
-  const { messages, fetchMessages, pinnedMessages, setPinned } = useMessagesStore();
+  const { messages, fetchMessages, pinnedMessages, setPinned, loaded } = useMessagesStore();
   const { user } = useAuthStore();
   const { channels } = useChannelsStore();
 
@@ -82,7 +82,10 @@ export function MessageFeed({ channelId, onOpenThread }: Props): React.ReactElem
   const channel = channels.find((c) => c.id === channelId);
   const pinned = pinnedMessages[channelId] ?? null;
 
-  let msgs = messages[channelId] ?? [];
+  // Filter empty non-deleted messages
+  let msgs = (messages[channelId] ?? []).filter(
+    (m) => m.isDeleted || m.content.trim().length > 0 || (m.attachments?.length ?? 0) > 0
+  );
 
   // Filter by search query
   if (searchQuery.trim()) {
@@ -90,14 +93,30 @@ export function MessageFeed({ channelId, onOpenThread }: Props): React.ReactElem
     msgs = msgs.filter((m) => m.content.toLowerCase().includes(q));
   }
 
+  // Consecutive same-sender messages within 5 minutes → grouped (no avatar/header)
+  const groupedSet = new Set<string>();
+  for (let i = 1; i < msgs.length; i++) {
+    const prev = msgs[i - 1];
+    const curr = msgs[i];
+    if (
+      !prev.isDeleted &&
+      !curr.isDeleted &&
+      prev.senderId === curr.senderId &&
+      new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60 * 1000
+    ) {
+      groupedSet.add(curr.id);
+    }
+  }
+
   useEffect(() => {
-    setIsLoading(true);
+    const alreadyCached = loaded[channelId];
+    if (!alreadyCached) setIsLoading(true);
     prevMsgCount.current = 0;
     setNewMessageCount(0);
     fetchMessages(channelId)
       .catch(() => {})
       .finally(() => setIsLoading(false));
-  }, [channelId, fetchMessages]);
+  }, [channelId, fetchMessages, loaded]);
 
   // Track new messages arriving while scrolled up
   useEffect(() => {
@@ -188,7 +207,12 @@ export function MessageFeed({ channelId, onOpenThread }: Props): React.ReactElem
             followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
             atBottomStateChange={setAtBottom}
             itemContent={(_, msg) => (
-              <MessageItem key={msg.id} message={msg} onReply={onOpenThread} />
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                onReply={onOpenThread}
+                isGrouped={groupedSet.has(msg.id)}
+              />
             )}
           />
         )}
