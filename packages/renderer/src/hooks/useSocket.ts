@@ -6,20 +6,25 @@ import { usePresenceStore } from '../store/presence';
 import { useAuthStore } from '../store/auth';
 import { useTasksStore } from '../store/tasks';
 import { useDocsStore } from '../store/docs';
+import { useFriendsStore } from '../store/friends';
 import type { Message } from '../store/messages';
 import type { Channel } from '../store/channels';
 import type { Task } from '../store/tasks';
 import type { UserStatus } from '../store/presence';
+import type { FriendRequest } from '../store/friends';
 import { useDMStore } from '../store/dm';
+import toast from 'react-hot-toast';
 
 export function useSocket(): void {
   const { appendMessage, updateMessage, deleteMessage, addReaction, setPinned } = useMessagesStore();
+  const { updateDMMessage } = useDMStore();
   const { activeChannelId, incrementUnread, addChannel, updateChannel, removeChannel } = useChannelsStore();
   const { setPresence, setTyping } = usePresenceStore();
   const { user } = useAuthStore();
   const { addTaskFromSocket, updateTaskFromSocket } = useTasksStore();
   const { updateDocMeta } = useDocsStore();
   const { appendDMMessage, activeConversationId, incrementUnread: incrementDMUnread } = useDMStore();
+  const { addIncomingRequest, markAccepted } = useFriendsStore();
 
   useEffect(() => {
     connect();
@@ -46,7 +51,13 @@ export function useSocket(): void {
         }
       }
     });
-    socket.on('message:update', (msg: Message) => updateMessage(msg));
+    socket.on('message:update', (msg: Message) => {
+      if (msg.contextType === 'dm') {
+        updateDMMessage(msg);
+      } else {
+        updateMessage(msg);
+      }
+    });
     socket.on('message:delete', ({ id, contextId }: { id: string; contextId: string }) =>
       deleteMessage(id, contextId)
     );
@@ -83,6 +94,19 @@ export function useSocket(): void {
       updateDocMeta(id, { title, updatedAt });
     });
 
+    // Friends
+    socket.on('friend:request-received', (req: FriendRequest) => {
+      addIncomingRequest(req);
+      toast(`${req.requester.displayName}님이 친구 요청을 보냈습니다`, { icon: '👋' });
+      if (window.electron?.notify) {
+        void window.electron.notify.show('친구 요청', `${req.requester.displayName}님이 친구 요청을 보냈습니다`);
+      }
+    });
+    socket.on('friend:request-accepted', ({ id, accepter }: { id: string; accepter: { id: string; displayName: string } }) => {
+      markAccepted(id);
+      toast.success(`${accepter.displayName}님이 친구 요청을 수락했습니다`);
+    });
+
     // Reconnect: rejoin all active rooms
     socket.on('connect', () => {
       const { activeChannelId: chId } = useChannelsStore.getState();
@@ -107,6 +131,8 @@ export function useSocket(): void {
       socket.off('task:updated');
       socket.off('task:status-changed');
       socket.off('doc:updated');
+      socket.off('friend:request-received');
+      socket.off('friend:request-accepted');
       socket.off('connect');
       disconnect();
     };

@@ -3,16 +3,18 @@ import { useChannelsStore } from '../../store/channels';
 import { useAuthStore } from '../../store/auth';
 import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
+import { useFriendsStore } from '../../store/friends';
 import { useSettingsStore, resolveTheme } from '../../store/settings';
 import { UserAvatar } from '../user/UserAvatar';
 import { getSocket } from '../../lib/socket';
 import toast from 'react-hot-toast';
 
-type Tab = 'channels' | 'dm' | 'docs' | 'tasks';
+type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks';
 
 const TAB_LABELS: Record<Tab, string> = {
   channels: '채널',
   dm: 'DM',
+  friends: '친구',
   docs: '문서',
   tasks: '태스크',
 };
@@ -28,6 +30,8 @@ interface Props {
   onOpenSettings(): void;
   onSelectDM(conversationId: string): void;
 }
+
+export type { Tab as SidebarTab };
 
 const STATUS_LABELS: Record<string, string> = {
   online: '온라인',
@@ -58,6 +62,7 @@ export function Sidebar({
   const { user, updateStatus, logout } = useAuthStore();
   const presences = usePresenceStore((s) => s.presences);
   const { conversations, activeConversationId, setActiveConversation } = useDMStore();
+  const { pendingCount: friendPendingCount } = useFriendsStore();
   const { settings, update } = useSettingsStore();
   const onlineCount = Object.values(presences).filter((p) => p.status === 'online').length;
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -113,17 +118,20 @@ export function Sidebar({
       <div className="flex flex-col flex-1 bg-sidebar border-r border-white/10 h-full overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-white/10 flex-shrink-0">
-          {(['channels', 'dm', 'docs', 'tasks'] as Tab[]).map((tab) => (
+          {(['channels', 'dm', 'friends', 'docs', 'tasks'] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => onTabChange(tab)}
-              className={`flex-1 py-2 text-xs transition-colors ${
+              className={`flex-1 py-2 text-xs transition-colors relative ${
                 activeTab === tab
                   ? 'text-white border-b-2 border-accent'
                   : 'text-white/50 hover:text-white/80'
               }`}
             >
               {TAB_LABELS[tab]}
+              {tab === 'friends' && friendPendingCount > 0 && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-accent rounded-full" />
+              )}
             </button>
           ))}
         </div>
@@ -233,6 +241,17 @@ export function Sidebar({
                 </div>
               )}
             </>
+          )}
+
+          {activeTab === 'friends' && (
+            <div className="px-3 py-4 text-center">
+              <div className="text-xs text-white/30">친구 탭에서 친구를 관리하세요</div>
+              {friendPendingCount > 0 && (
+                <div className="mt-2 text-xs text-accent font-medium">
+                  대기 중인 요청 {friendPendingCount}개
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === 'docs' && (

@@ -28,6 +28,7 @@ export interface DMMessage {
   createdAt: string;
   isEdited: boolean;
   isPending?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 interface DMState {
@@ -39,6 +40,7 @@ interface DMState {
   fetchMessages(conversationId: string): Promise<void>;
   openOrCreateDM(workspaceId: string, userId: string): Promise<string>;
   appendDMMessage(msg: DMMessage): void;
+  updateDMMessage(msg: DMMessage): void;
   incrementUnread(conversationId: string): void;
 }
 
@@ -88,6 +90,17 @@ export const useDMStore = create<DMState>((set, get) => ({
       if (list.some((m) => m.id === msg.id)) return s;
       return { messages: { ...s.messages, [msg.contextId]: [...list, msg] } };
     });
+  },
+
+  updateDMMessage(msg) {
+    set((s) => ({
+      messages: {
+        ...s.messages,
+        [msg.contextId]: (s.messages[msg.contextId] ?? []).map((m) =>
+          m.id === msg.id ? msg : m
+        ),
+      },
+    }));
   },
 
   incrementUnread(conversationId) {

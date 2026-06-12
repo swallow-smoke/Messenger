@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { InputJsonValue } from '@prisma/client/runtime/library';
 import { prisma } from '../lib/prisma';
 import { redis } from '../lib/redis';
+import { fetchLinkPreview } from '../services/link-preview';
 import type { AuthSocket } from './index';
 
 const sendSchema = z.object({
@@ -71,6 +72,41 @@ export function registerMessageHandlers(io: Server, socket: AuthSocket): void {
       };
       io.to(parsed.contextId).emit('message:new', plainMessage);
       ack?.({ ok: true, message: plainMessage });
+
+      // Async link preview — must not block or affect message delivery
+      const urlMatch = messageData.content.match(/https?:\/\/[^\s<>"{}|\\^`[\]]+/);
+      if (urlMatch) {
+        void (async () => {
+          try {
+            const preview = await fetchLinkPreview(urlMatch[0]);
+            if (!preview.title && !preview.description) return;
+
+            const existingMeta = (message.metadata ?? {}) as Record<string, unknown>;
+            const updated = await prisma.message.update({
+              where: { id: message.id },
+              data: {
+                metadata: {
+                  ...existingMeta,
+                  linkPreview: { url: urlMatch[0], ...preview },
+                } as InputJsonValue,
+              },
+              include: {
+                sender: { select: { id: true, displayName: true, avatarUrl: true } },
+                attachments: true,
+                reactions: true,
+              },
+            });
+
+            const plainUpdated = {
+              ...updated,
+              attachments: updated.attachments.map((a) => ({ ...a, fileSize: Number(a.fileSize) })),
+            };
+            io.to(parsed.contextId).emit('message:update', plainUpdated);
+          } catch {
+            // preview failure must not surface to the user
+          }
+        })();
+      }
     } catch (err) {
       console.error('message:send error', err);
       ack?.({ ok: false, error: 'Failed to send message' });

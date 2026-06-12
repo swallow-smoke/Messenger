@@ -98,6 +98,14 @@ enum WebhookType {
   @@map("webhook_type")
 }
 
+enum FriendshipStatus {
+  pending
+  accepted
+  blocked
+
+  @@map("friendship_status")
+}
+
 model User {
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email        String     @unique
@@ -128,6 +136,9 @@ model User {
   bookmarks            Bookmark[]
   pinnedMessages       PinnedMessage[]   @relation("MessagePinner")
   documentComments     DocumentComment[]
+  sentFriendships      Friendship[]      @relation("FriendshipRequester")
+  receivedFriendships  Friendship[]      @relation("FriendshipReceiver")
+  preferences          UserPreferences?
 
   @@index([email])
   @@map("users")
@@ -492,4 +503,32 @@ model LinkPreview {
   @@index([url])
   @@index([expiresAt])
   @@map("link_previews")
+}
+
+model UserPreferences {
+  id                  String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String  @unique @map("user_id") @db.Uuid
+  enableCodeHighlight Boolean @default(true) @map("enable_code_highlight")
+  enable3DPreview     Boolean @default(true) @map("enable_3d_preview")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model Friendship {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requesterId String           @map("requester_id") @db.Uuid
+  receiverId  String           @map("receiver_id") @db.Uuid
+  status      FriendshipStatus @default(pending)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  receiver  User @relation("FriendshipReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, receiverId])
+  @@index([requesterId])
+  @@index([receiverId])
+  @@map("friendships")
 }

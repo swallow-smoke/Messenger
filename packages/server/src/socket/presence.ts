@@ -3,6 +3,9 @@ import { prisma } from '../lib/prisma';
 import type { AuthSocket } from './index';
 
 export function registerPresenceHandlers(io: Server, socket: AuthSocket): void {
+  // Join personal room for targeted events (friend requests, DMs, etc.)
+  socket.join(socket.userId);
+
   prisma.user
     .update({ where: { id: socket.userId }, data: { status: 'online', lastSeenAt: new Date() } })
     .then(() => {

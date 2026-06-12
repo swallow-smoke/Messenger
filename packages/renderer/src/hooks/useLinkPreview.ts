@@ -23,7 +23,8 @@ export function useLinkPreview(text: string): LinkPreview | null {
     timer.current = setTimeout(async () => {
       try {
         const { data } = await api.get('/link-preview', { params: { url } });
-        setPreview({ url, ...(data as LinkPreview) });
+        const { url: _u, ...rest } = data as LinkPreview;
+        setPreview({ url, ...rest });
       } catch {
         setPreview(null);
       }

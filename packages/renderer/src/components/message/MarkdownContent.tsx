@@ -6,6 +6,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface Props {
   content: string;
+  enableCodeHighlight?: boolean;
   onTaskClick?: (taskNum: number) => void;
 }
 
@@ -16,6 +17,19 @@ function openLink(href: string): void {
     window.open(href, '_blank', 'noopener,noreferrer');
   }
 }
+
+const LANG_EXT: Record<string, string> = {
+  csharp: 'cs', cs: 'cs',
+  javascript: 'js', js: 'js',
+  typescript: 'ts', ts: 'ts',
+  jsx: 'jsx', tsx: 'tsx',
+  python: 'py', py: 'py',
+  rust: 'rs', go: 'go',
+  java: 'java', cpp: 'cpp', c: 'c',
+  html: 'html', css: 'css',
+  json: 'json', yaml: 'yaml', yml: 'yml',
+  bash: 'sh', sh: 'sh', shell: 'sh',
+};
 
 function CopyButton({ code }: { code: string }): React.ReactElement {
   const [copied, setCopied] = useState(false);
@@ -30,15 +44,37 @@ function CopyButton({ code }: { code: string }): React.ReactElement {
   return (
     <button
       onClick={copy}
-      className="absolute top-2 right-2 px-2 py-0.5 text-[10px] rounded bg-white/10 text-white/50 hover:bg-white/20 hover:text-white transition-colors font-mono"
+      className="px-2 py-0.5 text-[10px] rounded bg-white/10 text-white/50 hover:bg-white/20 hover:text-white transition-colors font-mono"
     >
       {copied ? '복사됨' : '복사'}
     </button>
   );
 }
 
+function DownloadButton({ code, language }: { code: string; language: string }): React.ReactElement {
+  const ext = LANG_EXT[language.toLowerCase()] ?? 'txt';
+
+  function download() {
+    const blob = new Blob([code], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `code.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <button
+      onClick={download}
+      className="px-2 py-0.5 text-[10px] rounded bg-white/10 text-white/50 hover:bg-white/20 hover:text-white transition-colors font-mono"
+    >
+      저장
+    </button>
+  );
+}
+
 function processTaskLinks(text: string, onTaskClick?: (n: number) => void): React.ReactNode {
-  // Match #123 task references
   const parts = text.split(/(#\d+)/g);
   return parts.map((part, i) => {
     const match = /^#(\d+)$/.exec(part);
@@ -58,7 +94,7 @@ function processTaskLinks(text: string, onTaskClick?: (n: number) => void): Reac
   });
 }
 
-export function MarkdownContent({ content, onTaskClick }: Props): React.ReactElement {
+export function MarkdownContent({ content, enableCodeHighlight = true, onTaskClick }: Props): React.ReactElement {
   return (
     <div className="text-sm leading-relaxed break-words">
       <ReactMarkdown
@@ -105,22 +141,32 @@ export function MarkdownContent({ content, onTaskClick }: Props): React.ReactEle
 
             if (isBlock) {
               const code = raw.replace(/\n$/, '');
+              const language = match ? match[1] : 'text';
               return (
                 <div className="relative group my-1">
-                  <CopyButton code={code} />
-                  <SyntaxHighlighter
-                    style={oneDark}
-                    language={match ? match[1] : 'text'}
-                    PreTag="div"
-                    customStyle={{
-                      margin: 0,
-                      borderRadius: '6px',
-                      fontSize: '0.78rem',
-                      paddingTop: '2rem',
-                    }}
-                  >
-                    {code}
-                  </SyntaxHighlighter>
+                  <div className="absolute top-2 right-2 flex gap-1 z-10">
+                    <DownloadButton code={code} language={language} />
+                    <CopyButton code={code} />
+                  </div>
+                  {enableCodeHighlight ? (
+                    <SyntaxHighlighter
+                      style={oneDark}
+                      language={language}
+                      PreTag="div"
+                      customStyle={{
+                        margin: 0,
+                        borderRadius: '6px',
+                        fontSize: '0.78rem',
+                        paddingTop: '2.5rem',
+                      }}
+                    >
+                      {code}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <pre className="bg-white/5 border border-white/10 rounded-md text-xs font-mono p-3 pt-10 overflow-x-auto whitespace-pre-wrap text-white/80">
+                      <code>{code}</code>
+                    </pre>
+                  )}
                 </div>
               );
             }

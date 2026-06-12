@@ -124,6 +124,30 @@ router.post('/:id/read', requireAuth, async (req: AuthRequest, res: Response) =>
   }
 });
 
+// Channel members list
+router.get('/:id/members', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const members = await prisma.channelMember.findMany({
+      where: { channelId: req.params.id },
+      include: {
+        user: { select: { id: true, displayName: true, avatarUrl: true, status: true, statusText: true } },
+      },
+    });
+    res.json(
+      members.map((m) => ({
+        userId: m.userId,
+        displayName: m.user.displayName,
+        avatarUrl: m.user.avatarUrl,
+        status: m.user.status,
+        statusText: m.user.statusText,
+        role: 'member',
+      }))
+    );
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Pinned messages
 router.get('/:id/pins', requireAuth, async (req: AuthRequest, res: Response) => {
   try {

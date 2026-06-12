@@ -2,15 +2,17 @@ import React, { useState, useRef } from 'react';
 import { useAuthStore } from '../store/auth';
 import { useSettingsStore, ACCENT_PRESETS, BG_GRADIENTS, resolveTheme } from '../store/settings';
 import type { AppSettings, Theme, FontSize, Density, BgType } from '../store/settings';
+import { usePreferencesStore } from '../store/preferences';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
-type Section = 'account' | 'appearance' | 'notifications' | 'shortcuts';
+type Section = 'account' | 'appearance' | 'notifications' | 'shortcuts' | 'preferences';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'account',       label: '내 계정' },
   { id: 'appearance',    label: '외관' },
   { id: 'notifications', label: '알림' },
+  { id: 'preferences',   label: '기능' },
   { id: 'shortcuts',     label: '단축키' },
 ];
 
@@ -77,6 +79,9 @@ export function SettingsPage({ onClose }: Props): React.ReactElement {
           )}
           {section === 'notifications' && (
             <NotificationsSection settings={settings} update={update} />
+          )}
+          {section === 'preferences' && (
+            <PreferencesSection />
           )}
           {section === 'shortcuts' && (
             <ShortcutsSection />
@@ -634,6 +639,32 @@ function NotificationsSection({ settings, update }: NotifProps): React.ReactElem
           <p className="text-xs text-white/25">키워드를 추가하면 해당 단어가 포함된 메시지에 알림을 받습니다</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   PREFERENCES SECTION
+   ===================================================================== */
+
+function PreferencesSection(): React.ReactElement {
+  const { prefs, update } = usePreferencesStore();
+
+  return (
+    <div className="space-y-5 max-w-md">
+      <h3 className="text-base font-semibold">기능 설정</h3>
+      <ToggleRow
+        label="코드 구문 강조"
+        description="메시지의 코드 블록과 코드 파일 첨부에 구문 강조를 적용합니다"
+        checked={prefs.enableCodeHighlight}
+        onChange={(v) => void update({ enableCodeHighlight: v })}
+      />
+      <ToggleRow
+        label="3D 파일 미리보기"
+        description=".glb/.fbx/.gltf 파일에 썸네일 미리보기를 표시합니다"
+        checked={prefs.enable3DPreview}
+        onChange={(v) => void update({ enable3DPreview: v })}
+      />
     </div>
   );
 }

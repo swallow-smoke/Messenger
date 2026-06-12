@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useDMStore } from '../../store/dm';
 import { useAuthStore } from '../../store/auth';
 import { getSocket } from '../../lib/socket';
+import { LinkPreviewCard, type LinkPreviewData } from '../message/LinkPreviewCard';
 import { formatDistanceToNow } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import toast from 'react-hot-toast';
@@ -97,6 +98,10 @@ export function DMView({ conversationId }: Props): React.ReactElement {
                 >
                   {msg.content}
                 </div>
+                {(() => {
+                  const p = msg.metadata?.linkPreview as LinkPreviewData | undefined;
+                  return p ? <LinkPreviewCard preview={p} /> : null;
+                })()}
                 <span className="text-[10px] text-white/30">
                   {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true, locale: ko })}
                 </span>

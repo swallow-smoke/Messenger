@@ -5,13 +5,17 @@ import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Message, Attachment } from '../../store/messages';
 import { useMessagesStore } from '../../store/messages';
+import { usePreferencesStore } from '../../store/preferences';
 import { ReactionBar } from './ReactionBar';
 import { EmbedCard } from './EmbedCard';
+import { LinkPreviewCard, type LinkPreviewData } from './LinkPreviewCard';
 import { MarkdownContent } from './MarkdownContent';
 import { UserAvatar } from '../user/UserAvatar';
-import { Lightbox } from './Lightbox';
+import { Lightbox, type LightboxImage } from './Lightbox';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useAuthStore } from '../../store/auth';
 import api from '../../lib/api';
@@ -40,12 +44,105 @@ function isMarkdown(fileName: string) {
   return fileName.endsWith('.md') || fileName.endsWith('.markdown');
 }
 
+const CODE_EXTS = new Set(['.cs', '.js', '.ts', '.jsx', '.tsx']);
+const CODE_LANG_MAP: Record<string, string> = {
+  cs: 'csharp', js: 'javascript', ts: 'typescript', jsx: 'jsx', tsx: 'tsx',
+};
+
+function isCodeFile(fileName: string) {
+  const dot = fileName.lastIndexOf('.');
+  return dot !== -1 && CODE_EXTS.has(fileName.slice(dot).toLowerCase());
+}
+
 function fileIcon(mimeType: string, fileName: string): string {
   if (is3D(fileName)) return '🎮';
   if (isMarkdown(fileName)) return '📄';
+  if (isCodeFile(fileName)) return '📝';
   if (fileName.endsWith('.psd') || fileName.endsWith('.ai')) return '🎨';
   if (mimeType.startsWith('video/')) return '🎬';
   return '📎';
+}
+
+function CodeFileModal({
+  attachment,
+  enableHighlight,
+  onClose,
+}: {
+  attachment: Attachment;
+  enableHighlight: boolean;
+  onClose(): void;
+}): React.ReactElement {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  const ext = attachment.fileName.toLowerCase().split('.').pop() ?? '';
+  const language = CODE_LANG_MAP[ext] ?? 'text';
+
+  useEffect(() => {
+    fetch(attachment.fileUrl)
+      .then((r) => r.text())
+      .then(setContent)
+      .catch(() => setError(true));
+  }, [attachment.fileUrl]);
+
+  function download() {
+    const a = document.createElement('a');
+    a.href = attachment.fileUrl;
+    a.download = attachment.fileName;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface border border-white/10 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-base">📝</span>
+            <span className="font-medium text-sm">{attachment.fileName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={download}
+              className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-xs transition-colors"
+            >
+              다운로드
+            </button>
+            <button onClick={onClose} className="text-white/50 hover:text-white text-xl leading-none">&times;</button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto">
+          {error ? (
+            <p className="text-white/40 text-sm text-center py-8">파일을 불러올 수 없습니다.</p>
+          ) : content === null ? (
+            <p className="text-white/40 text-sm text-center py-8">로드 중...</p>
+          ) : enableHighlight ? (
+            <SyntaxHighlighter
+              style={oneDark}
+              language={language}
+              showLineNumbers
+              PreTag="div"
+              customStyle={{ margin: 0, borderRadius: 0, fontSize: '0.78rem', minHeight: '100%' }}
+            >
+              {content}
+            </SyntaxHighlighter>
+          ) : (
+            <pre className="text-xs font-mono text-white/80 p-4 overflow-auto whitespace-pre-wrap">
+              {content}
+            </pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Markdown viewer modal for .md file attachments
@@ -131,6 +228,7 @@ function Asset3DChip({ attachment }: { attachment: Attachment }): React.ReactEle
 export function MessageItem({ message, onReply, onPin, isGrouped = false }: Props): React.ReactElement {
   const { user } = useAuthStore();
   const { editMessage, deleteMessage: softDelete, setPinned, pinnedMessages } = useMessagesStore();
+  const { prefs } = usePreferencesStore();
 
   const [hovered, setHovered] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -138,11 +236,13 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [lightbox, setLightbox] = useState<{ src: string; fileName: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: LightboxImage[]; initialIndex: number } | null>(null);
   const [mdViewerAttachment, setMdViewerAttachment] = useState<Attachment | null>(null);
+  const [codeViewerAttachment, setCodeViewerAttachment] = useState<Attachment | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   const embed = (message.metadata as Record<string, unknown>).embed;
+  const linkPreview = (message.metadata as Record<string, unknown>).linkPreview as LinkPreviewData | undefined;
   const createdAt = new Date(message.createdAt);
   const relativeTime = formatDistanceToNow(createdAt, { addSuffix: true, locale: ko });
   const fullTime = format(createdAt, 'yyyy년 M월 d일 HH:mm', { locale: ko });
@@ -225,12 +325,19 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
   return (
     <>
       {lightbox && (
-        <Lightbox src={lightbox.src} fileName={lightbox.fileName} onClose={() => setLightbox(null)} />
+        <Lightbox images={lightbox.images} initialIndex={lightbox.initialIndex} onClose={() => setLightbox(null)} />
       )}
       {mdViewerAttachment && (
         <MarkdownFileModal
           attachment={mdViewerAttachment}
           onClose={() => setMdViewerAttachment(null)}
+        />
+      )}
+      {codeViewerAttachment && (
+        <CodeFileModal
+          attachment={codeViewerAttachment}
+          enableHighlight={prefs.enableCodeHighlight}
+          onClose={() => setCodeViewerAttachment(null)}
         />
       )}
       {confirmDelete && (
@@ -371,7 +478,7 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
             </div>
           ) : (
             <>
-              <MarkdownContent content={message.content} />
+              <MarkdownContent content={message.content} enableCodeHighlight={prefs.enableCodeHighlight} />
               {isGrouped && (message.isEdited || message.isPending) && (
                 <div className="flex gap-1 text-xs text-white/30">
                   {message.isEdited && <span>(편집됨)</span>}
@@ -379,6 +486,7 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
                 </div>
               )}
               {embed && <EmbedCard embed={embed as Parameters<typeof EmbedCard>[0]['embed']} />}
+              {linkPreview && <LinkPreviewCard preview={linkPreview} />}
               {message.attachments.map((a) => {
                 if (isImage(a.mimeType)) {
                   return (
@@ -387,7 +495,7 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
                         src={a.fileUrl}
                         alt={a.fileName}
                         className="max-w-[400px] max-h-[300px] rounded cursor-pointer hover:opacity-90 transition-opacity object-cover"
-                        onClick={() => setLightbox({ src: a.fileUrl, fileName: a.fileName })}
+                        onClick={() => setLightbox({ images: [{ src: a.fileUrl, fileName: a.fileName, fileSize: a.fileSize }], initialIndex: 0 })}
                         onError={(e) => {
                           const el = e.currentTarget;
                           el.style.display = 'none';
@@ -407,7 +515,43 @@ export function MessageItem({ message, onReply, onPin, isGrouped = false }: Prop
                   );
                 }
                 if (is3D(a.fileName)) {
-                  return <Asset3DChip key={a.id} attachment={a} />;
+                  return prefs.enable3DPreview
+                    ? <Asset3DChip key={a.id} attachment={a} />
+                    : (
+                      <a
+                        key={a.id}
+                        href={a.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (window.electron?.shell) void window.electron.shell.openExternal(a.fileUrl);
+                          else window.open(a.fileUrl, '_blank');
+                        }}
+                        className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+                      >
+                        <span className="text-base">🎮</span>
+                        <div>
+                          <div className="font-medium">{a.fileName}</div>
+                          <div className="text-white/40">{(a.fileSize / 1024).toFixed(0)} KB</div>
+                        </div>
+                      </a>
+                    );
+                }
+                if (isCodeFile(a.fileName)) {
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => setCodeViewerAttachment(a)}
+                      className="inline-flex items-center gap-2 mt-1 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/70 hover:bg-white/10 hover:text-white transition-colors text-left"
+                    >
+                      <span className="text-base">📝</span>
+                      <div>
+                        <div className="font-medium">{a.fileName}</div>
+                        <div className="text-white/40">{(a.fileSize / 1024).toFixed(0)} KB · 클릭하여 미리보기</div>
+                      </div>
+                    </button>
+                  );
                 }
                 if (isMarkdown(a.fileName)) {
                   return (

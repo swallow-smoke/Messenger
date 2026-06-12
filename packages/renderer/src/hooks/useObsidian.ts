@@ -10,7 +10,7 @@ export function useObsidian(vaultPath: string | null): void {
     void loadObsidianTree(vaultPath);
     void window.electron.obsidian.startWatch(vaultPath);
 
-    window.electron.obsidian.onChanged(({ event, path }) => {
+    window.electron.obsidian.onChanged(({ event }) => {
       if (event !== 'unlink') {
         void loadObsidianTree(vaultPath);
       }

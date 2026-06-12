@@ -17,7 +17,9 @@ import integrationsRouter from './routes/integrations';
 import webhooksRouter from './routes/webhooks';
 import filesRouter from './routes/files';
 import linkPreviewRouter from './routes/link-preview';
+import preferencesRouter from './routes/preferences';
 import notificationsRouter from './routes/notifications';
+import friendsRouter from './routes/friends';
 import { initSocket } from './socket';
 import { ensureBucket } from './lib/minio';
 
@@ -46,7 +48,9 @@ api.use('/integrations', integrationsRouter);
 api.use('/webhooks', webhooksRouter);
 api.use('/files', filesRouter);
 api.use('/link-preview', linkPreviewRouter);
+api.use('/preferences', preferencesRouter);
 api.use('/notifications', notificationsRouter);
+api.use('/friends', friendsRouter);
 
 app.use('/api/v1', api);
 

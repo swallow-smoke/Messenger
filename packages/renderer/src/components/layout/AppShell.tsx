@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { Sidebar } from './Sidebar';
+import { MemberPanel } from './MemberPanel';
 import { MessageFeed } from '../message/MessageFeed';
 import { DocsView } from '../docs/DocsView';
 import { TaskBoard } from '../tasks/TaskBoard';
 import { DMView } from '../dm/DMView';
+import { FriendsPage } from '../friends/FriendsPage';
 import { ThreadPanel } from '../message/ThreadPanel';
 import { CommandPalette } from '../common/CommandPalette';
 import { KeyboardShortcutsModal } from '../common/KeyboardShortcutsModal';
@@ -14,12 +16,14 @@ import { ProfileEditModal } from '../user/ProfileEditModal';
 import { SettingsPage } from '../../pages/SettingsPage';
 import { useChannelsStore } from '../../store/channels';
 import { useDMStore } from '../../store/dm';
+import { useFriendsStore } from '../../store/friends';
+import { usePreferencesStore } from '../../store/preferences';
 import { useSocket } from '../../hooks/useSocket';
 import { storage } from '../../lib/api';
 import api from '../../lib/api';
 import type { Message } from '../../store/messages';
 
-type Tab = 'channels' | 'dm' | 'docs' | 'tasks';
+type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks';
 
 interface Workspace {
   id: string;
@@ -28,6 +32,7 @@ interface Workspace {
 }
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
+const MEMBER_PANEL_KEY = 'memberPanelOpen';
 
 export function AppShell(): React.ReactElement {
   useSocket();
@@ -39,6 +44,7 @@ export function AppShell(): React.ReactElement {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(224);
+  const [memberPanelOpen, setMemberPanelOpen] = useState(true);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
@@ -49,12 +55,13 @@ export function AppShell(): React.ReactElement {
 
   const { fetchChannels, activeChannelId, setActive } = useChannelsStore();
   const { fetchConversations } = useDMStore();
+  const { fetchAll: fetchFriends, fetchRequests } = useFriendsStore();
+  const loadPreferences = usePreferencesStore((s) => s.load);
 
-  // Load sidebar width
+  // Load persisted settings
   useEffect(() => {
-    storage.get(SIDEBAR_WIDTH_KEY).then((w) => {
-      if (w) setSidebarWidth(Number(w));
-    }).catch(() => {});
+    storage.get(SIDEBAR_WIDTH_KEY).then((w) => { if (w) setSidebarWidth(Number(w)); }).catch(() => {});
+    storage.get(MEMBER_PANEL_KEY).then((v) => { if (v !== null) setMemberPanelOpen(v !== 'false'); }).catch(() => {});
   }, []);
 
   // Electron updater events
@@ -67,6 +74,14 @@ export function AppShell(): React.ReactElement {
   function handleSidebarWidth(w: number): void {
     setSidebarWidth(w);
     void storage.set(SIDEBAR_WIDTH_KEY, String(w));
+  }
+
+  function handleMemberPanelToggle(): void {
+    setMemberPanelOpen((v) => {
+      const next = !v;
+      void storage.set(MEMBER_PANEL_KEY, String(next));
+      return next;
+    });
   }
 
   // Load workspaces
@@ -85,6 +100,13 @@ export function AppShell(): React.ReactElement {
       void fetchConversations(activeWorkspaceId);
     }
   }, [activeWorkspaceId, fetchChannels, fetchConversations]);
+
+  // Load friends and preferences once on mount
+  useEffect(() => {
+    void fetchFriends();
+    void fetchRequests();
+    void loadPreferences();
+  }, [fetchFriends, fetchRequests, loadPreferences]);
 
   // Global keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -122,10 +144,25 @@ export function AppShell(): React.ReactElement {
     setActiveTab('dm');
   }
 
+  async function handleOpenDMWithUser(userId: string): Promise<void> {
+    try {
+      const { data } = await api.post<{ id: string }>('/dm', { participantIds: [userId] });
+      handleSelectDM(data.id);
+    } catch {
+      // dm conversation may already exist; fetch conversations and find it
+      if (activeWorkspaceId) {
+        await fetchConversations(activeWorkspaceId);
+      }
+    }
+  }
+
   function handleWorkspaceCreated(ws: Workspace): void {
     setWorkspaces((prev) => [...prev, ws]);
     setActiveWorkspaceId(ws.id);
   }
+
+  const showMemberPanel =
+    memberPanelOpen && (activeTab === 'channels' || activeTab === 'dm');
 
   const renderMainContent = (): React.ReactElement => {
     if (activeTab === 'channels' && activeChannelId) {
@@ -133,6 +170,9 @@ export function AppShell(): React.ReactElement {
     }
     if (activeTab === 'dm' && activeDMConversationId) {
       return <DMView conversationId={activeDMConversationId} />;
+    }
+    if (activeTab === 'friends') {
+      return <FriendsPage onOpenDM={(uid) => void handleOpenDMWithUser(uid)} />;
     }
     if (activeTab === 'docs' && activeWorkspaceId) {
       return <DocsView workspaceId={activeWorkspaceId} />;
@@ -218,7 +258,28 @@ export function AppShell(): React.ReactElement {
         {threadMsg && (
           <ThreadPanel parentId={threadMsg.id} contextId={threadMsg.contextId} onClose={() => setThreadMsg(null)} />
         )}
+        {showMemberPanel && (
+          <MemberPanel
+            activeChannelId={activeChannelId}
+            activeDMConversationId={activeDMConversationId}
+            activeTab={activeTab}
+            onOpenDM={(uid) => void handleOpenDMWithUser(uid)}
+          />
+        )}
       </div>
+
+      {/* Member panel toggle button */}
+      {(activeTab === 'channels' || activeTab === 'dm') && (
+        <button
+          onClick={handleMemberPanelToggle}
+          className="absolute bottom-3 right-3 z-40 w-8 h-8 rounded-full bg-surface border border-white/15 flex items-center justify-center text-white/40 hover:text-white/80 shadow-lg transition-colors"
+          title={memberPanelOpen ? '멤버 패널 닫기' : '멤버 패널 열기'}
+        >
+          <svg className={`w-4 h-4 transition-transform ${memberPanelOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

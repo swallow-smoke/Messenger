@@ -17,12 +17,18 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     }
 
     const preview = await fetchLinkPreview(url);
+    const dbFields = {
+      title: preview.title,
+      description: preview.description,
+      imageUrl: preview.imageUrl,
+      siteName: preview.siteName,
+    };
     const saved = await prisma.linkPreview.upsert({
       where: { url },
-      create: { url, ...preview },
-      update: { ...preview, fetchedAt: new Date(), expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) },
+      create: { url, ...dbFields },
+      update: { ...dbFields, fetchedAt: new Date(), expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) },
     });
-    res.json(saved);
+    res.json({ ...saved, type: preview.type, stars: preview.stars, language: preview.language });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
