@@ -65,10 +65,42 @@ export function registerMessageHandlers(io: Server, socket: AuthSocket): void {
         },
       });
 
+      // Detect @username mentions and resolve to user IDs
+      let mentions: string[] = [];
+      if (messageData.content.includes('@')) {
+        if (messageData.contextType === 'channel') {
+          const channel = await prisma.channel.findUnique({
+            where: { id: messageData.contextId },
+            select: {
+              workspace: {
+                select: {
+                  members: {
+                    where: { userId: { not: socket.userId } },
+                    select: { userId: true, user: { select: { displayName: true } } },
+                  },
+                },
+              },
+            },
+          });
+          mentions = channel?.workspace.members
+            .filter((m) => messageData.content.includes(`@${m.user.displayName}`))
+            .map((m) => m.userId) ?? [];
+        } else {
+          const dmMembers = await prisma.directMember.findMany({
+            where: { conversationId: messageData.contextId, userId: { not: socket.userId } },
+            select: { userId: true, user: { select: { displayName: true } } },
+          });
+          mentions = dmMembers
+            .filter((m) => messageData.content.includes(`@${m.user.displayName}`))
+            .map((m) => m.userId);
+        }
+      }
+
       const plainMessage = {
         ...message,
         attachments: message.attachments.map((a) => ({ ...a, fileSize: Number(a.fileSize) })),
         clientTempId,
+        mentions,
       };
       io.to(parsed.contextId).emit('message:new', plainMessage);
       ack?.({ ok: true, message: plainMessage });

@@ -36,6 +36,7 @@ export interface Message {
   _count?: { replies: number };
   isPinned?: boolean;
   clientTempId?: string;
+  mentions?: string[];
 }
 
 interface MessagesState {
@@ -43,7 +44,8 @@ interface MessagesState {
   threads: Record<string, Message[]>;
   pinnedMessages: Record<string, Message | null>;
   loaded: Record<string, boolean>;
-  fetchMessages(channelId: string, before?: string): Promise<void>;
+  fetchMessages(channelId: string, before?: string, after?: string): Promise<void>;
+  clearLoaded(channelId: string): void;
   fetchThread(parentId: string): Promise<void>;
   appendMessage(message: Message): void;
   updateMessage(message: Message): void;
@@ -62,12 +64,16 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   pinnedMessages: {},
   loaded: {},
 
-  async fetchMessages(channelId, before) {
-    // Skip initial fetch if channel already loaded (use cache)
-    if (!before && get().loaded[channelId]) return;
+  async fetchMessages(channelId, before, after) {
+    // Skip initial fetch if already loaded unless jumping to a specific date
+    if (!before && !after && get().loaded[channelId]) return;
 
     const { data } = await api.get(`/messages/${channelId}/messages`, {
-      params: { ...(before ? { before } : {}), limit: 50 },
+      params: {
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+        limit: 50,
+      },
     });
     set((s) => ({
       messages: {
@@ -130,6 +136,15 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         threads: {
           ...s.threads,
           [message.parentId!]: [...(s.threads[message.parentId!] ?? []), clean],
+        },
+        // Keep parent message reply count in sync for the "N replies" indicator
+        messages: {
+          ...s.messages,
+          [message.contextId]: (s.messages[message.contextId] ?? []).map((m) =>
+            m.id === message.parentId
+              ? { ...m, _count: { replies: (m._count?.replies ?? 0) + 1 } }
+              : m
+          ),
         },
       }));
     } else {
@@ -230,6 +245,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         [contextId]: (s.messages[contextId] ?? []).filter((m) => m.id !== tempId),
       },
     }));
+  },
+
+  clearLoaded(channelId) {
+    set((s) => ({ loaded: { ...s.loaded, [channelId]: false } }));
   },
 
   setPinned(channelId, message) {

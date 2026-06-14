@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 interface Props {
   workspaceId: string;
   onClose(): void;
+  initialTitle?: string;
+  initialDescription?: string;
 }
 
 const STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
@@ -17,10 +19,10 @@ const TYPE_KO: Record<string, string> = { feature: '기능', bug: '버그', art:
 
 const PRIORITY_COLOR: Record<string, string> = { critical: 'text-red-400', high: 'text-orange-400', medium: 'text-yellow-400', low: 'text-blue-400' };
 
-export function TaskCreateModal({ workspaceId, onClose }: Props): React.ReactElement {
+export function TaskCreateModal({ workspaceId, onClose, initialTitle, initialDescription }: Props): React.ReactElement {
   const { createTask } = useTasksStore();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState(initialTitle ?? '');
+  const [description, setDescription] = useState(initialDescription ?? '');
   const [status, setStatus] = useState<typeof STATUSES[number]>('backlog');
   const [priority, setPriority] = useState<typeof PRIORITIES[number]>('medium');
   const [type, setType] = useState<typeof TYPES[number]>('feature');

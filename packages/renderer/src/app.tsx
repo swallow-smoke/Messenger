@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { isAxiosError } from 'axios';
 import { AppShell } from './components/layout/AppShell';
 import { RegisterPage } from './pages/RegisterPage';
+import { DebugPanel } from './components/common/DebugPanel';
 import { useAuthStore } from './store/auth';
 import { useSettingsStore, BG_GRADIENTS } from './store/settings';
 
@@ -12,8 +13,9 @@ function AppBackground(): React.ReactElement | null {
   if (settings.bgType === 'image' && settings.bgImage) {
     return (
       <div
-        className="fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
+        className="fixed inset-0 bg-cover bg-center bg-no-repeat"
         style={{
+          zIndex: -10,
           backgroundImage: `url(${settings.bgImage})`,
           filter: `brightness(${settings.bgBrightness}%)`,
         }}
@@ -23,8 +25,8 @@ function AppBackground(): React.ReactElement | null {
   if (settings.bgType === 'gradient') {
     return (
       <div
-        className="fixed inset-0 -z-10"
-        style={{ background: BG_GRADIENTS[settings.bgGradient] ?? BG_GRADIENTS[0] }}
+        className="fixed inset-0"
+        style={{ zIndex: -10, background: BG_GRADIENTS[settings.bgGradient] ?? BG_GRADIENTS[0] }}
       />
     );
   }
@@ -63,6 +65,7 @@ export function App(): React.ReactElement {
     <>
       <AppBackground />
       <AppShell />
+      <DebugPanel />
     </>
   );
 }

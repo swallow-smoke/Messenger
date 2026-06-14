@@ -7,6 +7,11 @@ import { useAuthStore } from '../store/auth';
 import { useTasksStore } from '../store/tasks';
 import { useDocsStore } from '../store/docs';
 import { useFriendsStore } from '../store/friends';
+import { useSettingsStore } from '../store/settings';
+import { usePreferencesStore } from '../store/preferences';
+import { useChannelSoundsStore } from '../store/channelSounds';
+import { useWorkspaceSettingsStore } from '../store/workspaceSettings';
+import { playSound } from '../lib/sounds';
 import type { Message } from '../store/messages';
 import type { Channel } from '../store/channels';
 import type { Task } from '../store/tasks';
@@ -37,17 +42,56 @@ export function useSocket(): void {
         if (msg.contextId !== activeConversationId) {
           incrementDMUnread(msg.contextId);
         }
-        return;
+      } else {
+        // appendMessage handles clientTempId dedup internally
+        appendMessage(msg);
+        if (msg.contextId !== activeChannelId && !msg.parentId) {
+          incrementUnread(msg.contextId);
+        }
       }
-      // appendMessage handles clientTempId dedup internally
-      appendMessage(msg);
-      if (msg.contextId !== activeChannelId && !msg.parentId) {
-        incrementUnread(msg.contextId);
-        if (user && msg.content.includes(`@${user.displayName}`) && window.electron?.notify) {
-          void window.electron.notify.show(
-            `#${msg.contextId} — ${msg.sender.displayName}`,
-            msg.content.slice(0, 100)
-          );
+
+      // Desktop notifications + sound for mentions and keywords
+      if (user && msg.senderId !== user.id) {
+        const { settings } = useSettingsStore.getState();
+
+        // Resolve workspace for this message's channel (for mute/notifLevel check)
+        let workspaceId: string | undefined;
+        if (msg.contextType === 'channel') {
+          workspaceId = useChannelsStore.getState().channels.find((c) => c.id === msg.contextId)?.workspaceId;
+        }
+
+        const wsSettings = useWorkspaceSettingsStore.getState();
+        const isMuted = workspaceId ? wsSettings.isMuted(workspaceId) : false;
+        const notifLevel = workspaceId ? wsSettings.getNotifLevel(workspaceId) : 'all';
+        const isMention = msg.mentions?.includes(user.id) ?? false;
+
+        // Skip all notifications/sounds when workspace is muted or notifLevel is 'nothing'
+        if (!isMuted && notifLevel !== 'nothing') {
+          // Play per-channel notification sound (skipped if mentions-only and not a mention)
+          if (settings.notifSound && msg.contextType === 'channel' && (notifLevel === 'all' || isMention)) {
+            const soundId = useChannelSoundsStore.getState().getSound(msg.contextId);
+            playSound(soundId);
+          }
+
+          if (settings.notifDesktop && window.electron?.notify) {
+            if (settings.notifMention && isMention) {
+              void window.electron.notify.show(
+                `@멘션 — ${msg.sender.displayName}`,
+                msg.content.slice(0, 100)
+              );
+            } else if (notifLevel === 'all') {
+              const { prefs } = usePreferencesStore.getState();
+              const matched = prefs.keywords.find((kw) =>
+                msg.content.toLowerCase().includes(kw.toLowerCase())
+              );
+              if (matched) {
+                void window.electron.notify.show(
+                  `키워드 "${matched}" — ${msg.sender.displayName}`,
+                  msg.content.slice(0, 100)
+                );
+              }
+            }
+          }
         }
       }
     });

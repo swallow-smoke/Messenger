@@ -1,4 +1,19 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useAuthStore } from '../store/auth';
 import { useSettingsStore, ACCENT_PRESETS, BG_GRADIENTS, resolveTheme } from '../store/settings';
 import type { AppSettings, Theme, FontSize, Density, BgType } from '../store/settings';
@@ -7,14 +22,6 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 
 type Section = 'account' | 'appearance' | 'notifications' | 'shortcuts' | 'preferences';
-
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: 'account',       label: '내 계정' },
-  { id: 'appearance',    label: '외관' },
-  { id: 'notifications', label: '알림' },
-  { id: 'preferences',   label: '기능' },
-  { id: 'shortcuts',     label: '단축키' },
-];
 
 const STATUS_LABELS: Record<string, string> = {
   online: '온라인',
@@ -30,6 +37,13 @@ const STATUS_COLORS: Record<string, string> = {
   offline: '#6b7280',
 };
 
+const STATUS_PRESETS: Array<{ icon: string; label: string; text: string; status?: string }> = [
+  { icon: '🗓️', label: '회의 중', text: '회의 중', status: 'away' },
+  { icon: '🐛', label: '디버깅 중', text: '디버깅 중' },
+  { icon: '🎮', label: '게임 개발 중', text: '게임 개발 중' },
+  { icon: '🚫', label: '방해 금지', text: '방해 금지', status: 'dnd' },
+];
+
 interface Props {
   onClose(): void;
 }
@@ -39,6 +53,14 @@ export function SettingsPage({ onClose }: Props): React.ReactElement {
   const [section, setSection] = useState<Section>('account');
 
   const resolved = resolveTheme(settings.theme);
+
+  const sections: { id: Section; label: string }[] = [
+    { id: 'account',       label: '내 계정' },
+    { id: 'appearance',    label: '외관' },
+    { id: 'notifications', label: '알림' },
+    { id: 'preferences',   label: '기능' },
+    { id: 'shortcuts',     label: '단축키' },
+  ];
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -50,7 +72,7 @@ export function SettingsPage({ onClose }: Props): React.ReactElement {
             <button onClick={onClose} className="text-white/40 hover:text-white text-xl leading-none">&times;</button>
           </div>
           <nav className="flex-1">
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setSection(s.id)}
@@ -211,6 +233,36 @@ function AccountSection(): React.ReactElement {
           onChange={(e) => setDisplayName(e.target.value)}
           className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
         />
+      </div>
+
+      {/* Status presets */}
+      <div>
+        <label className="block text-sm text-white/60 mb-1.5">빠른 상태</label>
+        <div className="flex flex-wrap gap-1.5">
+          {STATUS_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => { setStatusText(p.text); if (p.status) void updateStatus(p.status); }}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                statusText === p.text
+                  ? 'bg-accent/20 border-accent/40 text-white'
+                  : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 text-white/70'
+              }`}
+            >
+              {p.icon} {p.label}
+            </button>
+          ))}
+          {statusText && (
+            <button
+              type="button"
+              onClick={() => setStatusText('')}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white/5 border border-white/10 hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400 text-white/40 rounded-full transition-colors"
+            >
+              ✕ 지우기
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Status text */}
@@ -558,16 +610,17 @@ interface NotifProps {
 
 function NotificationsSection({ settings, update }: NotifProps): React.ReactElement {
   const [keyword, setKeyword] = useState('');
+  const { prefs, update: updatePrefs } = usePreferencesStore();
 
   function addKeyword(): void {
     const kw = keyword.trim();
-    if (!kw || settings.notifKeywords.includes(kw)) return;
-    update({ notifKeywords: [...settings.notifKeywords, kw] });
+    if (!kw || prefs.keywords.includes(kw)) return;
+    void updatePrefs({ keywords: [...prefs.keywords, kw] });
     setKeyword('');
   }
 
   function removeKeyword(kw: string): void {
-    update({ notifKeywords: settings.notifKeywords.filter((k) => k !== kw) });
+    void updatePrefs({ keywords: prefs.keywords.filter((k) => k !== kw) });
   }
 
   return (
@@ -617,9 +670,9 @@ function NotificationsSection({ settings, update }: NotifProps): React.ReactElem
             추가
           </button>
         </div>
-        {settings.notifKeywords.length > 0 && (
+        {prefs.keywords.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {settings.notifKeywords.map((kw) => (
+            {prefs.keywords.map((kw) => (
               <span
                 key={kw}
                 className="flex items-center gap-1.5 bg-white/10 rounded-full px-2.5 py-1 text-xs"
@@ -635,7 +688,7 @@ function NotificationsSection({ settings, update }: NotifProps): React.ReactElem
             ))}
           </div>
         )}
-        {settings.notifKeywords.length === 0 && (
+        {prefs.keywords.length === 0 && (
           <p className="text-xs text-white/25">키워드를 추가하면 해당 단어가 포함된 메시지에 알림을 받습니다</p>
         )}
       </div>
@@ -699,6 +752,8 @@ function ShortcutsSection(): React.ReactElement {
         ['Ctrl + Shift + G', '앱 창 표시/숨김'],
         ['Ctrl + ,', '설정 열기'],
         ['Ctrl + F', '메시지 검색'],
+        ['Ctrl + = / -', 'UI 확대 / 축소'],
+        ['Ctrl + 0', 'UI 크기 초기화'],
       ],
     },
     {
@@ -730,6 +785,400 @@ function ShortcutsSection(): React.ReactElement {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* =====================================================================
+   ROLES SECTION
+   ===================================================================== */
+
+interface Role {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+  manageChannels: boolean;
+  manageRoles: boolean;
+  manageMembers: boolean;
+  kickMembers: boolean;
+  banMembers: boolean;
+  deleteAnyMessage: boolean;
+  manageWebhooks: boolean;
+}
+
+interface WorkspaceMemberEntry {
+  id: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  memberId: string;
+  roles: Array<{ id: string; name: string; color: string; position: number }>;
+}
+
+const PERMISSION_LABELS: Array<{ key: keyof Omit<Role, 'id' | 'name' | 'color' | 'position'>; label: string }> = [
+  { key: 'manageChannels',   label: '채널 관리' },
+  { key: 'manageRoles',      label: '역할 관리' },
+  { key: 'manageMembers',    label: '멤버 역할 관리' },
+  { key: 'kickMembers',      label: '멤버 추방' },
+  { key: 'banMembers',       label: '멤버 차단' },
+  { key: 'deleteAnyMessage', label: '메시지 삭제' },
+  { key: 'manageWebhooks',   label: '웹훅 관리' },
+];
+
+function SortableRoleRow({
+  role,
+  selected,
+  onSelect,
+}: {
+  role: Role;
+  selected: boolean;
+  onSelect(): void;
+}): React.ReactElement {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: role.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+        selected ? 'bg-accent/20 border border-accent/40' : 'border border-white/5 hover:bg-white/5'
+      }`}
+      onClick={onSelect}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="text-white/25 hover:text-white/50 cursor-grab active:cursor-grabbing px-0.5"
+        onClick={(e) => e.stopPropagation()}
+        title="드래그하여 순서 변경"
+      >
+        ⠿
+      </button>
+      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color }} />
+      <span className="flex-1 text-sm truncate">{role.name}</span>
+    </div>
+  );
+}
+
+export function RolesModal({ workspaceId, initialTab, onClose }: { workspaceId: string; initialTab?: 'roles' | 'members'; onClose(): void }): React.ReactElement {
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-surface border border-white/10 rounded-2xl w-full max-w-2xl h-[580px] flex flex-col overflow-hidden shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 flex-shrink-0">
+          <h2 className="font-semibold text-sm">역할 & 멤버 관리</h2>
+          <button onClick={onClose} className="text-white/40 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          <RolesSection workspaceId={workspaceId} initialTab={initialTab} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RolesSection({ workspaceId, initialTab = 'roles' }: { workspaceId: string; initialTab?: 'roles' | 'members' }): React.ReactElement {
+  const [subTab, setSubTab] = useState<'roles' | 'members'>(initialTab);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [members, setMembers] = useState<WorkspaceMemberEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('#818cf8');
+  const [editPerms, setEditPerms] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
+
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  useEffect(() => {
+    void loadData();
+  }, [workspaceId]);
+
+  async function loadData(): Promise<void> {
+    setLoading(true);
+    try {
+      const [rolesRes, membersRes] = await Promise.all([
+        api.get<Role[]>(`/workspaces/${workspaceId}/roles`),
+        api.get<WorkspaceMemberEntry[]>(`/workspaces/${workspaceId}/members`),
+      ]);
+      setRoles(rolesRes.data);
+      setMembers(membersRes.data);
+    } catch {
+      toast.error('역할 로드 실패');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openRole(role: Role): void {
+    setCreating(false);
+    setSelectedRoleId(role.id);
+    setEditName(role.name);
+    setEditColor(role.color);
+    setEditPerms({
+      manageChannels: role.manageChannels,
+      manageRoles: role.manageRoles,
+      manageMembers: role.manageMembers,
+      kickMembers: role.kickMembers,
+      banMembers: role.banMembers,
+      deleteAnyMessage: role.deleteAnyMessage,
+      manageWebhooks: role.manageWebhooks,
+    });
+  }
+
+  function openNew(): void {
+    setSelectedRoleId(null);
+    setCreating(true);
+    setEditName('');
+    setEditColor('#818cf8');
+    setEditPerms({ manageChannels: false, manageRoles: false, manageMembers: false, kickMembers: false, banMembers: false, deleteAnyMessage: false, manageWebhooks: false });
+  }
+
+  async function saveRole(): Promise<void> {
+    if (!editName.trim()) { toast.error('역할 이름을 입력하세요'); return; }
+    setSaving(true);
+    try {
+      const body = { name: editName.trim(), color: editColor, ...editPerms };
+      if (creating) {
+        const { data } = await api.post<Role>(`/workspaces/${workspaceId}/roles`, { ...body, position: roles.length });
+        setRoles((prev) => [...prev, data]);
+        setCreating(false);
+        setSelectedRoleId(data.id);
+        toast.success('역할 생성됨');
+      } else if (selectedRoleId) {
+        const { data } = await api.patch<Role>(`/workspaces/${workspaceId}/roles/${selectedRoleId}`, body);
+        setRoles((prev) => prev.map((r) => (r.id === selectedRoleId ? data : r)));
+        toast.success('저장됨');
+      }
+    } catch {
+      toast.error('저장 실패');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRole(roleId: string): Promise<void> {
+    if (!confirm('이 역할을 삭제하시겠습니까?')) return;
+    try {
+      await api.delete(`/workspaces/${workspaceId}/roles/${roleId}`);
+      setRoles((prev) => prev.filter((r) => r.id !== roleId));
+      if (selectedRoleId === roleId) { setSelectedRoleId(null); setCreating(false); }
+      toast.success('역할 삭제됨');
+    } catch {
+      toast.error('삭제 실패');
+    }
+  }
+
+  async function handleDragEnd(event: DragEndEvent): Promise<void> {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = roles.findIndex((r) => r.id === active.id);
+    const newIndex = roles.findIndex((r) => r.id === over.id);
+    const reordered = arrayMove(roles, oldIndex, newIndex).map((r, i) => ({ ...r, position: i }));
+    setRoles(reordered);
+    await Promise.all(
+      reordered.map((r) => api.patch(`/workspaces/${workspaceId}/roles/${r.id}`, { position: r.position }))
+    ).catch(() => toast.error('순서 저장 실패'));
+  }
+
+  async function assignRole(userId: string, roleId: string): Promise<void> {
+    try {
+      await api.post(`/workspaces/${workspaceId}/members/${userId}/roles`, { roleId });
+      setMembers((prev) =>
+        prev.map((m) => {
+          if (m.id !== userId) return m;
+          const role = roles.find((r) => r.id === roleId);
+          if (!role || m.roles.some((r) => r.id === roleId)) return m;
+          return { ...m, roles: [...m.roles, { id: role.id, name: role.name, color: role.color, position: role.position }] };
+        })
+      );
+    } catch {
+      toast.error('역할 할당 실패');
+    }
+  }
+
+  async function removeRole(userId: string, roleId: string): Promise<void> {
+    try {
+      await api.delete(`/workspaces/${workspaceId}/members/${userId}/roles/${roleId}`);
+      setMembers((prev) =>
+        prev.map((m) =>
+          m.id === userId ? { ...m, roles: m.roles.filter((r) => r.id !== roleId) } : m
+        )
+      );
+    } catch {
+      toast.error('역할 제거 실패');
+    }
+  }
+
+  const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
+  const showEditPanel = creating || selectedRole !== null;
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-40 text-white/40 text-sm">불러오는 중...</div>;
+  }
+
+  return (
+    <div className="h-full flex flex-col gap-4">
+      <h3 className="text-base font-semibold flex-shrink-0">역할 관리</h3>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-white/10 flex-shrink-0">
+        {(['roles', 'members'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setSubTab(t)}
+            className={`px-4 py-2 text-sm transition-colors border-b-2 -mb-px ${
+              subTab === t ? 'border-accent text-white' : 'border-transparent text-white/50 hover:text-white'
+            }`}
+          >
+            {t === 'roles' ? '역할' : '멤버'}
+          </button>
+        ))}
+      </div>
+
+      {subTab === 'roles' && (
+        <div className="flex gap-4 flex-1 min-h-0">
+          {/* Role list */}
+          <div className="w-44 flex-shrink-0 flex flex-col gap-2">
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void handleDragEnd(e)}>
+              <SortableContext items={roles.map((r) => r.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex flex-col gap-1">
+                  {roles.map((role) => (
+                    <SortableRoleRow
+                      key={role.id}
+                      role={role}
+                      selected={selectedRoleId === role.id}
+                      onSelect={() => openRole(role)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+            <button
+              onClick={openNew}
+              className="mt-1 text-xs text-accent hover:text-white/80 px-3 py-1.5 border border-dashed border-accent/40 rounded-lg transition-colors"
+            >
+              + 새 역할
+            </button>
+          </div>
+
+          {/* Edit panel */}
+          {showEditPanel && (
+            <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
+              <div>
+                <label className="block text-xs text-white/50 mb-1">역할 이름</label>
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  placeholder="역할 이름"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/50 mb-1">색상</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={editColor}
+                    onChange={(e) => setEditColor(e.target.value)}
+                    className="w-10 h-10 rounded-lg cursor-pointer bg-transparent border border-white/20"
+                  />
+                  <span className="text-sm font-mono text-white/60">{editColor}</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-white/50 mb-2">권한</div>
+                <div className="space-y-1">
+                  {PERMISSION_LABELS.map(({ key, label }) => (
+                    <ToggleRow
+                      key={key}
+                      label={label}
+                      checked={editPerms[key] ?? false}
+                      onChange={(v) => setEditPerms((p) => ({ ...p, [key]: v }))}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={() => void saveRole()}
+                  disabled={saving}
+                  className="px-4 py-1.5 bg-accent hover:bg-accent/80 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {saving ? '저장 중...' : '저장'}
+                </button>
+                {selectedRole && (
+                  <button
+                    onClick={() => void deleteRole(selectedRole.id)}
+                    className="px-4 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-lg text-sm transition-colors"
+                  >
+                    삭제
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {!showEditPanel && (
+            <div className="flex-1 flex items-center justify-center text-white/25 text-sm">
+              역할을 선택하거나 새로 만드세요
+            </div>
+          )}
+        </div>
+      )}
+
+      {subTab === 'members' && (
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {members.map((member) => (
+            <div key={member.id} className="flex items-center gap-3 p-3 rounded-lg border border-white/5 hover:bg-white/3">
+              <div className="w-8 h-8 rounded-full bg-accent/30 flex-shrink-0 overflow-hidden flex items-center justify-center text-sm font-bold">
+                {member.avatarUrl ? (
+                  <img src={member.avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (member.displayName[0] ?? '?').toUpperCase()
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{member.displayName}</div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {member.roles.map((role) => (
+                    <span
+                      key={role.id}
+                      className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border"
+                      style={{ borderColor: role.color + '66', color: role.color }}
+                    >
+                      {role.name}
+                      <button
+                        onClick={() => void removeRole(member.id, role.id)}
+                        className="opacity-60 hover:opacity-100 leading-none"
+                        title="역할 제거"
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                  <select
+                    className="text-[11px] bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-white/50 hover:text-white cursor-pointer outline-none"
+                    value=""
+                    onChange={(e) => { if (e.target.value) void assignRole(member.id, e.target.value); }}
+                  >
+                    <option value="">+ 역할 추가</option>
+                    {roles
+                      .filter((r) => !member.roles.some((mr) => mr.id === r.id))
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+          {members.length === 0 && (
+            <div className="text-center text-white/30 text-sm py-10">멤버가 없습니다</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

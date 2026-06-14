@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
 import { useAuthStore } from '../../store/auth';
+import { useMemberColorsStore } from '../../store/memberColors';
 
 interface ChannelMember {
   userId: string;
@@ -10,6 +11,7 @@ interface ChannelMember {
   avatarUrl?: string;
   status: string;
   statusText?: string;
+  lastSeenAt?: string | null;
   role: string;
 }
 
@@ -36,6 +38,7 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
   const presences = usePresenceStore((s) => s.presences);
   const { conversations } = useDMStore();
   const { user } = useAuthStore();
+  const memberColors = useMemberColorsStore((s) => s.colors);
 
   const fetchChannelMembers = useCallback(async (channelId: string): Promise<void> => {
     try {
@@ -81,6 +84,17 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
     a.displayName.localeCompare(b.displayName)
   );
 
+  function formatLastSeen(iso: string): string {
+    const d = new Date(iso);
+    const diffMs = Date.now() - d.getTime();
+    const diffH = Math.floor(diffMs / 3_600_000);
+    if (diffH < 1) return `${Math.max(1, Math.floor(diffMs / 60_000))}분 전`;
+    if (diffH < 24) return `${diffH}시간 전`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD < 7) return `${diffD}일 전`;
+    return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+  }
+
   function renderMember(m: typeof enriched[0]): React.ReactElement {
     return (
       <button
@@ -99,10 +113,21 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
           </div>
           <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-secondary,#1e1e2e)] ${STATUS_COLOR[m.status] ?? 'bg-gray-500'}`} />
         </div>
-        <span className={`text-xs truncate ${m.status === 'offline' ? 'text-white/40' : 'text-white/80'}`}>
-          {m.displayName}
-          {m.userId === user?.id ? ' (나)' : ''}
-        </span>
+        <div className="flex flex-col min-w-0">
+          <span
+            className={`text-xs truncate ${m.status === 'offline' ? 'text-white/40' : 'text-white/80'}`}
+            style={memberColors[m.userId] && m.status !== 'offline' ? { color: memberColors[m.userId]! } : undefined}
+          >
+            {m.displayName}
+            {m.userId === user?.id ? ' (나)' : ''}
+          </span>
+          {m.status === 'offline' && m.lastSeenAt && (
+            <span className="text-[10px] text-white/25 truncate">{formatLastSeen(m.lastSeenAt)}</span>
+          )}
+          {m.status !== 'offline' && m.statusText && (
+            <span className="text-[10px] text-white/40 truncate">{m.statusText}</span>
+          )}
+        </div>
       </button>
     );
   }

@@ -1,5 +1,21 @@
 import React, { useRef, useCallback, useState } from 'react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useChannelsStore } from '../../store/channels';
+import { useChannelOrderStore } from '../../store/channelOrder';
 import { useAuthStore } from '../../store/auth';
 import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
@@ -8,8 +24,9 @@ import { useSettingsStore, resolveTheme } from '../../store/settings';
 import { UserAvatar } from '../user/UserAvatar';
 import { getSocket } from '../../lib/socket';
 import toast from 'react-hot-toast';
+import type { Channel } from '../../store/channels';
 
-type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks';
+type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks' | 'mentions';
 
 const TAB_LABELS: Record<Tab, string> = {
   channels: '채널',
@@ -17,6 +34,7 @@ const TAB_LABELS: Record<Tab, string> = {
   friends: '친구',
   docs: '문서',
   tasks: '태스크',
+  mentions: '멘션',
 };
 
 interface Props {
@@ -33,6 +51,75 @@ interface Props {
 
 export type { Tab as SidebarTab };
 
+function SortableChannelItem({
+  ch,
+  activeChannelId,
+  unread,
+  isFav,
+  onSelect,
+  onToggleFav,
+}: {
+  ch: Channel;
+  activeChannelId: string | null;
+  unread: number;
+  isFav: boolean;
+  onSelect(): void;
+  onToggleFav(): void;
+}): React.ReactElement {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ch.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="group flex items-center mx-1 rounded"
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="px-1 py-1.5 text-white/20 opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing flex-shrink-0"
+        tabIndex={-1}
+      >
+        ⠿
+      </button>
+      <button
+        onClick={onSelect}
+        className={`flex-1 text-left py-1.5 text-sm flex items-center justify-between transition-colors rounded ${
+          activeChannelId === ch.id
+            ? 'bg-accent/20 text-white'
+            : unread > 0
+            ? 'text-white font-medium hover:bg-white/10'
+            : 'text-white/70 hover:bg-white/10'
+        }`}
+      >
+        <span className="flex items-center gap-1.5 min-w-0 pl-1">
+          <span className="text-white/40">#</span>
+          <span className="truncate">{ch.name}</span>
+        </span>
+        {unread > 0 && (
+          <span className="bg-accent text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 flex-shrink-0 font-semibold mr-1">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </button>
+      <button
+        onClick={onToggleFav}
+        className={`px-1 py-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-xs ${
+          isFav ? 'text-yellow-400 opacity-100' : 'text-white/30 hover:text-yellow-400'
+        }`}
+        title={isFav ? '즐겨찾기 해제' : '즐겨찾기'}
+      >
+        ★
+      </button>
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   online: '온라인',
   away: '자리 비움',
@@ -48,7 +135,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function Sidebar({
-  workspaceId: _workspaceId,
+  workspaceId,
   activeTab,
   onTabChange,
   width,
@@ -58,7 +145,8 @@ export function Sidebar({
   onOpenSettings,
   onSelectDM,
 }: Props): React.ReactElement {
-  const { channels, activeChannelId, setActive, unreadCounts } = useChannelsStore();
+  const { channels, categories, activeChannelId, setActive, unreadCounts, createCategory, deleteCategory } = useChannelsStore();
+  const { favorites, toggleFavorite, isFavorite, setOrder, getOrder } = useChannelOrderStore();
   const { user, updateStatus, logout } = useAuthStore();
   const presences = usePresenceStore((s) => s.presences);
   const { conversations, activeConversationId, setActiveConversation } = useDMStore();
@@ -66,6 +154,45 @@ export function Sidebar({
   const { settings, update } = useSettingsStore();
   const onlineCount = Object.values(presences).filter((p) => p.status === 'online').length;
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [favoritesCollapsed, setFavoritesCollapsed] = useState(false);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const favIds = favorites[workspaceId] ?? [];
+  const orderedChannels = getOrder(workspaceId, channels.map((c) => c.id));
+  const sortedChannels = orderedChannels.map((id) => channels.find((c) => c.id === id)).filter(Boolean) as Channel[];
+  const favoriteChannels = sortedChannels.filter((c) => favIds.includes(c.id));
+  const nonFavChannels = sortedChannels.filter((c) => !favIds.includes(c.id));
+
+  function toggleCategory(id: string): void {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleCreateCategory(): Promise<void> {
+    const name = newCategoryName.trim();
+    if (!name || !workspaceId) return;
+    await createCategory(workspaceId, name);
+    setNewCategoryName('');
+    setShowNewCategory(false);
+  }
+
+  function handleDragEnd(event: DragEndEvent): void {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = sortedChannels.map((c) => c.id);
+    const oldIdx = ids.indexOf(active.id as string);
+    const newIdx = ids.indexOf(over.id as string);
+    if (oldIdx === -1 || newIdx === -1) return;
+    const reordered = arrayMove(ids, oldIdx, newIdx);
+    void setOrder(workspaceId, reordered);
+  }
 
   const resolved = resolveTheme(settings.theme);
 
@@ -97,10 +224,17 @@ export function Sidebar({
     window.addEventListener('mouseup', onUp);
   }, [width, onWidthChange]);
 
-  function changeStatus(status: string): void {
-    updateStatus(status);
-    getSocket().emit('status:set', { status });
-    toast.success(`상태: ${STATUS_LABELS[status] ?? status}`);
+  const STATUS_PRESETS = [
+    { status: 'online' as const, text: '회의 중', emoji: '📅' },
+    { status: 'dnd' as const, text: '디버깅 중', emoji: '🐛' },
+    { status: 'dnd' as const, text: '방해 금지', emoji: '🚫' },
+    { status: 'away' as const, text: '잠시 자리 비움', emoji: '☕' },
+  ];
+
+  function changeStatus(status: string, statusText?: string): void {
+    updateStatus(status, statusText);
+    getSocket().emit('status:set', { status, statusText });
+    toast.success(statusText ? `${statusText}` : `상태: ${STATUS_LABELS[status] ?? status}`);
     setShowUserMenu(false);
   }
 
@@ -118,7 +252,7 @@ export function Sidebar({
       <div className="flex flex-col flex-1 bg-sidebar border-r border-white/10 h-full overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-white/10 flex-shrink-0">
-          {(['channels', 'dm', 'friends', 'docs', 'tasks'] as Tab[]).map((tab) => (
+          {(['channels', 'dm', 'friends', 'docs', 'tasks', 'mentions'] as Tab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => onTabChange(tab)}
@@ -140,12 +274,20 @@ export function Sidebar({
         <div className="flex-1 overflow-y-auto py-2">
           {activeTab === 'channels' && (
             <>
+              {/* Header */}
               <div className="px-3 mb-1 flex items-center justify-between">
                 <span className="text-white/40 text-xs font-semibold uppercase tracking-wider">채널</span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   {onlineCount > 0 && (
                     <span className="text-white/30 text-xs">{onlineCount}명 온라인</span>
                   )}
+                  <button
+                    onClick={() => setShowNewCategory((v) => !v)}
+                    className="text-white/30 hover:text-white text-xs px-1"
+                    title="카테고리 추가"
+                  >
+                    ⊞
+                  </button>
                   <button
                     onClick={onCreateChannel}
                     className="text-white/30 hover:text-white text-base leading-none w-4 h-4 flex items-center justify-center"
@@ -155,32 +297,121 @@ export function Sidebar({
                   </button>
                 </div>
               </div>
-              {channels.map((ch) => {
-                const unread = unreadCounts[ch.id] ?? 0;
-                return (
+
+              {/* New category input */}
+              {showNewCategory && (
+                <div className="px-2 mb-1 flex gap-1">
+                  <input
+                    autoFocus
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleCreateCategory();
+                      if (e.key === 'Escape') setShowNewCategory(false);
+                    }}
+                    placeholder="카테고리 이름..."
+                    className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white placeholder-white/30 outline-none focus:border-accent/50"
+                  />
                   <button
-                    key={ch.id}
-                    onClick={() => { setActive(ch.id); onTabChange('channels'); }}
-                    className={`w-full text-left px-3 py-1.5 text-sm rounded mx-1 flex items-center justify-between transition-colors ${
-                      activeChannelId === ch.id
-                        ? 'bg-accent/20 text-white'
-                        : unread > 0
-                        ? 'text-white font-medium hover:bg-white/10'
-                        : 'text-white/70 hover:bg-white/10'
-                    }`}
+                    onClick={() => void handleCreateCategory()}
+                    className="px-2 py-1 bg-accent/80 hover:bg-accent text-white text-xs rounded"
                   >
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-white/40">#</span>
-                      <span className="truncate">{ch.name}</span>
-                    </span>
-                    {unread > 0 && (
-                      <span className="bg-accent text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 flex-shrink-0 font-semibold">
-                        {unread > 99 ? '99+' : unread}
-                      </span>
-                    )}
+                    추가
                   </button>
-                );
-              })}
+                </div>
+              )}
+
+              {/* DnD context wraps all sortable channel items */}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={sortedChannels.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+
+                  {/* Favorites section */}
+                  {favoriteChannels.length > 0 && (
+                    <div className="mb-1">
+                      <button
+                        onClick={() => setFavoritesCollapsed((v) => !v)}
+                        className="w-full px-3 py-0.5 flex items-center gap-1 text-[10px] text-yellow-400/70 hover:text-yellow-400 uppercase tracking-wider font-semibold transition-colors"
+                      >
+                        <span className={`transition-transform ${favoritesCollapsed ? '-rotate-90' : ''}`}>▾</span>
+                        즐겨찾기
+                      </button>
+                      {!favoritesCollapsed && favoriteChannels.map((ch) => (
+                        <SortableChannelItem
+                          key={ch.id}
+                          ch={ch}
+                          activeChannelId={activeChannelId}
+                          unread={unreadCounts[ch.id] ?? 0}
+                          isFav={true}
+                          onSelect={() => { setActive(ch.id); onTabChange('channels'); }}
+                          onToggleFav={() => void toggleFavorite(workspaceId, ch.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Categories */}
+                  {categories.map((cat) => {
+                    const catChannels = nonFavChannels.filter((c) => c.categoryId === cat.id);
+                    const collapsed = collapsedCategories.has(cat.id);
+                    return (
+                      <div key={cat.id} className="mb-1">
+                        <div className="flex items-center group/cat px-1">
+                          <button
+                            onClick={() => toggleCategory(cat.id)}
+                            className="flex-1 flex items-center gap-1 px-2 py-0.5 text-[10px] text-white/40 hover:text-white/70 uppercase tracking-wider font-semibold transition-colors"
+                          >
+                            <span className={`transition-transform ${collapsed ? '-rotate-90' : ''}`}>▾</span>
+                            {cat.name}
+                          </button>
+                          <button
+                            onClick={() => void deleteCategory(cat.id)}
+                            className="opacity-0 group-hover/cat:opacity-100 px-1 text-white/20 hover:text-red-400 text-xs transition-all"
+                            title="카테고리 삭제"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        {!collapsed && catChannels.map((ch) => (
+                          <SortableChannelItem
+                            key={ch.id}
+                            ch={ch}
+                            activeChannelId={activeChannelId}
+                            unread={unreadCounts[ch.id] ?? 0}
+                            isFav={isFavorite(workspaceId, ch.id)}
+                            onSelect={() => { setActive(ch.id); onTabChange('channels'); }}
+                            onToggleFav={() => void toggleFavorite(workspaceId, ch.id)}
+                          />
+                        ))}
+                        {!collapsed && catChannels.length === 0 && (
+                          <div className="px-6 py-0.5 text-[10px] text-white/20">채널 없음</div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Uncategorized channels */}
+                  {nonFavChannels.filter((c) => !c.categoryId).length > 0 && (
+                    <div className="mb-1">
+                      {categories.length > 0 && (
+                        <div className="px-3 py-0.5 text-[10px] text-white/25 uppercase tracking-wider font-semibold">기타</div>
+                      )}
+                      {nonFavChannels.filter((c) => !c.categoryId).map((ch) => (
+                        <SortableChannelItem
+                          key={ch.id}
+                          ch={ch}
+                          activeChannelId={activeChannelId}
+                          unread={unreadCounts[ch.id] ?? 0}
+                          isFav={isFavorite(workspaceId, ch.id)}
+                          onSelect={() => { setActive(ch.id); onTabChange('channels'); }}
+                          onToggleFav={() => void toggleFavorite(workspaceId, ch.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                </SortableContext>
+              </DndContext>
+
               {channels.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-white/30">
                   채널이 없습니다.{' '}
@@ -308,6 +539,32 @@ export function Sidebar({
                       {label}
                     </button>
                   ))}
+                  <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-wide border-t border-white/5 mt-1">상태 메시지</div>
+                  <div className="px-3 pb-2 flex flex-wrap gap-1">
+                    {STATUS_PRESETS.map((p) => (
+                      <button
+                        key={`${p.status}-${p.text}`}
+                        onClick={() => changeStatus(p.status, p.text)}
+                        className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/15 rounded-full text-white/60 hover:text-white transition-colors"
+                      >
+                        {p.emoji} {p.text}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="px-3 pb-2">
+                    <input
+                      type="text"
+                      placeholder="직접 입력..."
+                      maxLength={60}
+                      className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white placeholder-white/30 outline-none focus:border-accent/50"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const t = (e.target as HTMLInputElement).value.trim();
+                          if (t) changeStatus(user?.status ?? 'online', t);
+                        }
+                      }}
+                    />
+                  </div>
                   <div className="border-t border-white/5 mt-1">
                     <button
                       onClick={() => { setShowUserMenu(false); onOpenSettings(); }}

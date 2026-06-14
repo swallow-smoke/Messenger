@@ -10,6 +10,30 @@ export const minioClient = new Minio.Client({
 
 const BUCKET = process.env.MINIO_BUCKET ?? 'messenger-files';
 
+// Separate client for presigning — uses the public endpoint so the HMAC Host
+// header matches what the Electron renderer sends (localhost), not the
+// Docker-internal service name (minio). Using minio:9000 for signing but
+// localhost:9000 for fetching causes SignatureDoesNotMatch → 403.
+function buildPresignClient(): Minio.Client {
+  const publicUrl = process.env.MINIO_PUBLIC_URL;
+  if (!publicUrl) return minioClient;
+  try {
+    const { hostname, port, protocol } = new URL(publicUrl);
+    return new Minio.Client({
+      endPoint: hostname,
+      port: port ? parseInt(port) : protocol === 'https:' ? 443 : 80,
+      useSSL: protocol === 'https:',
+      accessKey: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
+      secretKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin',
+      region: 'us-east-1',
+    });
+  } catch {
+    return minioClient;
+  }
+}
+
+const presignClient = buildPresignClient();
+
 export async function ensureBucket(): Promise<void> {
   const exists = await minioClient.bucketExists(BUCKET);
   if (!exists) {
@@ -29,17 +53,5 @@ export async function uploadBuffer(
 }
 
 export async function getPresignedUrl(objectName: string, expiry = 3600): Promise<string> {
-  const url = await minioClient.presignedGetObject(BUCKET, objectName, expiry);
-  const publicUrl = process.env.MINIO_PUBLIC_URL;
-  if (!publicUrl) return url;
-  try {
-    const parsed = new URL(url);
-    const pub = new URL(publicUrl);
-    parsed.protocol = pub.protocol;
-    parsed.hostname = pub.hostname;
-    parsed.port = pub.port;
-    return parsed.toString();
-  } catch {
-    return url;
-  }
+  return presignClient.presignedGetObject(BUCKET, objectName, expiry);
 }

@@ -1,14 +1,34 @@
 import express, { type Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import type { Prisma } from '@prisma/client';
 
 const router: Router = express.Router();
 
+const VALID_TYPES = ['mention', 'reply', 'dm', 'keyword'] as const;
+type NotifType = typeof VALID_TYPES[number];
+
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
+    const { type } = req.query as { type?: string };
+    const typeFilter: Partial<Prisma.NotificationWhereInput> =
+      type && VALID_TYPES.includes(type as NotifType)
+        ? { type: type as NotifType }
+        : {};
     const notifications = await prisma.notification.findMany({
-      where: { userId: req.user!.id },
-      include: { message: { select: { id: true, content: true, contextId: true, contextType: true } } },
+      where: { userId: req.user!.id, ...typeFilter },
+      include: {
+        message: {
+          select: {
+            id: true,
+            content: true,
+            contextId: true,
+            contextType: true,
+            createdAt: true,
+            sender: { select: { id: true, displayName: true, avatarUrl: true } },
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });

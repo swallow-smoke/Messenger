@@ -36,6 +36,7 @@ interface LinkEmbed {
   description?: string;
   imageUrl?: string;
   siteName?: string;
+  embedUrl?: string;
 }
 
 type Embed = NotionEmbed | ObsidianEmbed | TaskEmbed | CiEmbed | LinkEmbed;

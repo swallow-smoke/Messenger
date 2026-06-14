@@ -9,6 +9,7 @@ export interface LinkPreview {
   description?: string;
   imageUrl?: string;
   siteName?: string;
+  embedUrl?: string;
 }
 
 export function useLinkPreview(text: string): LinkPreview | null {

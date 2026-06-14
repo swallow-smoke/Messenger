@@ -1,14 +1,16 @@
 import React from 'react';
+import { usePreferencesStore } from '../../store/preferences';
 
 export interface LinkPreviewData {
   url?: string;
-  type?: 'github' | 'notion' | 'generic';
+  type?: 'github' | 'notion' | 'generic' | 'sketchfab';
   title?: string;
   description?: string;
   imageUrl?: string;
   siteName?: string;
   stars?: number;
   language?: string;
+  embedUrl?: string;
 }
 
 function openLink(e: React.MouseEvent, url: string) {
@@ -116,12 +118,54 @@ function GenericCard({ preview }: { preview: LinkPreviewData }): React.ReactElem
   );
 }
 
+function SketchfabCard({ preview, enable3DPreview }: { preview: LinkPreviewData; enable3DPreview: boolean }): React.ReactElement {
+  if (enable3DPreview && preview.embedUrl) {
+    return (
+      <div className="mt-2 rounded-lg overflow-hidden border border-white/10" style={{ width: 480, height: 320 }}>
+        <iframe
+          src={preview.embedUrl}
+          title={preview.title ?? 'Sketchfab model'}
+          allow="autoplay; fullscreen; xr-spatial-tracking"
+          className="w-full h-full border-0"
+        />
+      </div>
+    );
+  }
+  return (
+    <a
+      href={preview.url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => preview.url && openLink(e, preview.url)}
+      className="mt-2 flex gap-3 max-w-lg rounded-lg border border-white/10 bg-white/5 overflow-hidden hover:bg-white/[0.08] transition-colors no-underline"
+    >
+      {preview.imageUrl && (
+        <img
+          src={preview.imageUrl}
+          alt=""
+          className="w-20 h-20 object-cover flex-shrink-0"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      )}
+      <div className="py-2.5 pr-3 min-w-0 flex-1">
+        <div className="text-xs text-white/40 mb-0.5 uppercase tracking-wide">Sketchfab</div>
+        <div className="font-semibold text-sm text-white truncate">{preview.title}</div>
+        {preview.description && (
+          <div className="text-xs text-white/60 mt-0.5 line-clamp-2">{preview.description}</div>
+        )}
+      </div>
+    </a>
+  );
+}
+
 interface Props {
   preview: LinkPreviewData;
 }
 
 export function LinkPreviewCard({ preview }: Props): React.ReactElement | null {
+  const { prefs } = usePreferencesStore();
   if (!preview.title && !preview.description) return null;
+  if (preview.type === 'sketchfab') return <SketchfabCard preview={preview} enable3DPreview={prefs.enable3DPreview} />;
   if (preview.type === 'github') return <GitHubCard preview={preview} />;
   if (preview.type === 'notion') return <NotionCard preview={preview} />;
   return <GenericCard preview={preview} />;

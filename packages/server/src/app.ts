@@ -1,4 +1,6 @@
 import './lib/env';
+import { morganStream } from './lib/debug-logger'; // must be first — installs console intercepts
+import { startDebugServer } from './lib/debug-server';
 import express, { type Express, Request, Response, NextFunction } from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -20,6 +22,8 @@ import linkPreviewRouter from './routes/link-preview';
 import preferencesRouter from './routes/preferences';
 import notificationsRouter from './routes/notifications';
 import friendsRouter from './routes/friends';
+import categoriesRouter from './routes/categories';
+import searchRouter from './routes/search';
 import { initSocket } from './socket';
 import { ensureBucket } from './lib/minio';
 
@@ -31,7 +35,7 @@ app.set('json replacer', (_key: string, value: unknown) =>
 );
 app.use(cors({ origin: '*', credentials: true }));
 app.use(helmet());
-app.use(morgan('dev'));
+app.use(morgan('dev', { stream: morganStream }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -51,6 +55,8 @@ api.use('/link-preview', linkPreviewRouter);
 api.use('/preferences', preferencesRouter);
 api.use('/notifications', notificationsRouter);
 api.use('/friends', friendsRouter);
+api.use('/categories', categoriesRouter);
+api.use('/search', searchRouter);
 
 app.use('/api/v1', api);
 
@@ -70,7 +76,8 @@ app.set('io', io);
 const PORT = parseInt(process.env.PORT ?? '4000');
 
 async function start(): Promise<void> {
-  await ensureBucket().catch(console.warn);
+  await ensureBucket();
+  startDebugServer();
   httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

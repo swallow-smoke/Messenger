@@ -22,6 +22,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       description: preview.description,
       imageUrl: preview.imageUrl,
       siteName: preview.siteName,
+      embedUrl: preview.embedUrl,
     };
     const saved = await prisma.linkPreview.upsert({
       where: { url },

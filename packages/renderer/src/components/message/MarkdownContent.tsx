@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -98,7 +101,8 @@ export function MarkdownContent({ content, enableCodeHighlight = true, onTaskCli
   return (
     <div className="text-sm leading-relaxed break-words">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           h1: ({ children }) => <h1 className="text-lg font-bold mt-1 mb-0.5">{children}</h1>,
           h2: ({ children }) => <h2 className="text-base font-bold mt-1 mb-0.5">{children}</h2>,

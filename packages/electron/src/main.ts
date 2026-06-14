@@ -107,7 +107,12 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    if (config.isDev) {
+      win.webContents.openDevTools();
+    }
+  });
 
   if (config.isDev) {
     win.loadURL(config.devServerUrl);
@@ -158,6 +163,10 @@ function setupGlobalShortcuts(win: BrowserWindow): void {
       win.show();
       win.focus();
     }
+  });
+
+  globalShortcut.register('F12', () => {
+    win.webContents.toggleDevTools();
   });
 }
 

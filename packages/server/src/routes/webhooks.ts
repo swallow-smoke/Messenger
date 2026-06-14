@@ -7,6 +7,14 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import type { Server as SocketServer } from 'socket.io';
 
+const ciPayloadSchema = z.object({
+  repo: z.string(),
+  branch: z.string(),
+  status: z.enum(['success', 'failure', 'running']),
+  commitSha: z.string(),
+  commitUrl: z.string().url().optional(),
+});
+
 const router: Router = express.Router();
 
 const createSchema = z.object({
@@ -81,6 +89,44 @@ router.post('/incoming/:token', async (req: Request, res: Response) => {
     const io: SocketServer = req.app.get('io');
     io.to(webhook.channelId).emit('message:new', message);
 
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// CI/CD build result webhook
+router.post('/ci/:token', async (req: Request, res: Response) => {
+  try {
+    const webhook = await prisma.webhook.findUnique({
+      where: { token: req.params.token, isActive: true },
+    });
+    if (!webhook) { res.status(404).json({ error: 'Webhook not found' }); return; }
+    if (!webhook.channelId) { res.status(400).json({ error: 'Webhook has no target channel' }); return; }
+
+    const parsed = ciPayloadSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: 'Invalid CI payload' }); return; }
+
+    const { repo, branch, status, commitSha, commitUrl } = parsed.data;
+    const icon = status === 'success' ? '✅' : status === 'failure' ? '❌' : '🔄';
+    const content = `${icon} **${repo}** — \`${branch}\` build ${status}`;
+    const embed: InputJsonValue = { type: 'ci_build', repo, branch, status, commitSha, ...(commitUrl ? { commitUrl } : {}) };
+
+    const message = await prisma.message.create({
+      data: {
+        contextType: 'channel',
+        contextId: webhook.channelId,
+        senderId: webhook.createdBy,
+        content,
+        metadata: { embed } as InputJsonValue,
+      },
+      include: { sender: { select: { id: true, displayName: true, avatarUrl: true } } },
+    });
+
+    await prisma.webhook.update({ where: { id: webhook.id }, data: { lastTriggeredAt: new Date() } });
+
+    const io: SocketServer = req.app.get('io');
+    io.to(webhook.channelId).emit('message:new', message);
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Server error' });

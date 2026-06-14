@@ -41,7 +41,7 @@ export interface AppSettings {
   notifMention: boolean;
   notifDm: boolean;
   notifSound: boolean;
-  notifKeywords: string[];
+  uiZoom: number;
 }
 
 const DEFAULTS: AppSettings = {
@@ -59,7 +59,7 @@ const DEFAULTS: AppSettings = {
   notifMention: true,
   notifDm: true,
   notifSound: true,
-  notifKeywords: [],
+  uiZoom: 1,
 };
 
 const FONT_SIZE_PX: Record<FontSize, string> = {
@@ -101,13 +101,10 @@ export function applySettings(s: AppSettings): void {
   html.style.setProperty('--message-font-size', FONT_SIZE_PX[s.messageFontSize]);
   html.style.setProperty('--message-padding-y', s.messageDensity === 'compact' ? '0.2rem' : '0.375rem');
 
-  // Background (gradients applied directly; image handled by AppBackground React component)
-  const body = document.body;
-  if (s.bgType === 'gradient') {
-    body.style.background = BG_GRADIENTS[s.bgGradient] ?? BG_GRADIENTS[0];
-  } else {
-    body.style.background = '';
-  }
+  // Background is handled by the AppBackground React component (fixed inset-0 z-index -10).
+  // Clear any inline background that may have been set by an older version.
+  document.body.style.background = '';
+  (document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(s.uiZoom ?? 1);
 }
 
 interface SettingsStore {

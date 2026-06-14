@@ -2,13 +2,14 @@ import ogs from 'open-graph-scraper';
 
 export interface LinkPreviewData {
   url?: string;
-  type?: 'github' | 'notion' | 'generic';
+  type?: 'github' | 'notion' | 'generic' | 'sketchfab';
   title?: string;
   description?: string;
   imageUrl?: string;
   siteName?: string;
   stars?: number;
   language?: string;
+  embedUrl?: string;
 }
 
 async function fetchGitHubPreview(url: string): Promise<LinkPreviewData> {
@@ -63,8 +64,34 @@ async function fetchOGPreview(url: string, type: 'notion' | 'generic'): Promise<
   }
 }
 
+interface SketchfabOEmbed {
+  title?: string;
+  thumbnail_url?: string;
+  html?: string;
+}
+
+async function fetchSketchfabPreview(url: string): Promise<LinkPreviewData> {
+  try {
+    const oembedUrl = `https://sketchfab.com/oembed?url=${encodeURIComponent(url)}`;
+    const response = await fetch(oembedUrl, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return { type: 'sketchfab' };
+    const data = (await response.json()) as SketchfabOEmbed;
+    const srcMatch = /src="([^"]+)"/.exec(data.html ?? '');
+    return {
+      type: 'sketchfab',
+      title: data.title,
+      imageUrl: data.thumbnail_url,
+      siteName: 'Sketchfab',
+      embedUrl: srcMatch?.[1],
+    };
+  } catch {
+    return { type: 'sketchfab' };
+  }
+}
+
 export async function fetchLinkPreview(url: string): Promise<LinkPreviewData> {
   if (/github\.com/i.test(url)) return fetchGitHubPreview(url);
   if (/notion\.(so|site)/i.test(url)) return fetchOGPreview(url, 'notion');
+  if (/sketchfab\.com/i.test(url)) return fetchSketchfabPreview(url);
   return fetchOGPreview(url, 'generic');
 }

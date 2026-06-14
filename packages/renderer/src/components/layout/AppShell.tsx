@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { WorkspaceSwitcher, type WorkspaceItem } from './WorkspaceSwitcher';
 import { Sidebar } from './Sidebar';
 import { MemberPanel } from './MemberPanel';
 import { MessageFeed } from '../message/MessageFeed';
@@ -9,27 +9,31 @@ import { DMView } from '../dm/DMView';
 import { FriendsPage } from '../friends/FriendsPage';
 import { ThreadPanel } from '../message/ThreadPanel';
 import { CommandPalette } from '../common/CommandPalette';
+import { MentionsInbox } from '../message/MentionsInbox';
 import { KeyboardShortcutsModal } from '../common/KeyboardShortcutsModal';
 import { WorkspaceCreateModal } from '../workspace/WorkspaceCreateModal';
+import { InviteModal } from '../workspace/InviteModal';
+import { WorkspaceImportModal } from '../workspace/WorkspaceImportModal';
 import { ChannelCreateModal } from '../channels/ChannelCreateModal';
 import { ProfileEditModal } from '../user/ProfileEditModal';
-import { SettingsPage } from '../../pages/SettingsPage';
+import { SettingsPage, RolesModal } from '../../pages/SettingsPage';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useWorkspaceSettingsStore } from '../../store/workspaceSettings';
+import { useSettingsStore } from '../../store/settings';
 import { useChannelsStore } from '../../store/channels';
 import { useDMStore } from '../../store/dm';
 import { useFriendsStore } from '../../store/friends';
 import { usePreferencesStore } from '../../store/preferences';
+import { useChannelSoundsStore } from '../../store/channelSounds';
+import { useChannelOrderStore } from '../../store/channelOrder';
+import { useMemberColorsStore } from '../../store/memberColors';
 import { useSocket } from '../../hooks/useSocket';
 import { storage } from '../../lib/api';
 import api from '../../lib/api';
 import type { Message } from '../../store/messages';
+import toast from 'react-hot-toast';
 
-type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks';
-
-interface Workspace {
-  id: string;
-  name: string;
-  iconUrl?: string;
-}
+type Tab = 'channels' | 'dm' | 'friends' | 'docs' | 'tasks' | 'mentions';
 
 const SIDEBAR_WIDTH_KEY = 'sidebarWidth';
 const MEMBER_PANEL_KEY = 'memberPanelOpen';
@@ -37,7 +41,7 @@ const MEMBER_PANEL_KEY = 'memberPanelOpen';
 export function AppShell(): React.ReactElement {
   useSocket();
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('channels');
   const [threadMsg, setThreadMsg] = useState<Message | null>(null);
@@ -52,11 +56,21 @@ export function AppShell(): React.ReactElement {
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activeDMConversationId, setActiveDMConversationId] = useState<string | null>(null);
+  const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string | null>(null);
+  const [leaveWorkspaceId, setLeaveWorkspaceId] = useState<string | null>(null);
+  const [rolesWorkspaceId, setRolesWorkspaceId] = useState<string | null>(null);
+  const [rolesInitialTab, setRolesInitialTab] = useState<'roles' | 'members'>('roles');
+  const [showImportModal, setShowImportModal] = useState(false);
 
-  const { fetchChannels, activeChannelId, setActive } = useChannelsStore();
+  const { fetchChannels, fetchCategories, activeChannelId, setActive } = useChannelsStore();
   const { fetchConversations } = useDMStore();
   const { fetchAll: fetchFriends, fetchRequests } = useFriendsStore();
   const loadPreferences = usePreferencesStore((s) => s.load);
+  const loadChannelSounds = useChannelSoundsStore((s) => s.load);
+  const loadChannelOrder = useChannelOrderStore((s) => s.load);
+  const setMemberColors = useMemberColorsStore((s) => s.setColors);
+  const clearMemberColors = useMemberColorsStore((s) => s.clear);
+  const loadWorkspaceSettings = useWorkspaceSettingsStore((s) => s.load);
 
   // Load persisted settings
   useEffect(() => {
@@ -84,29 +98,41 @@ export function AppShell(): React.ReactElement {
     });
   }
 
-  // Load workspaces
+  // Load workspaces + workspace settings
   useEffect(() => {
+    void loadWorkspaceSettings();
     api.get('/workspaces').then(({ data }) => {
-      setWorkspaces(data as Workspace[]);
-      if ((data as Workspace[]).length > 0) {
-        setActiveWorkspaceId((data as Workspace[])[0].id);
-      }
+      const list = data as WorkspaceItem[];
+      setWorkspaces(list);
+      if (list.length > 0) setActiveWorkspaceId(list[0].id);
     }).catch(() => {});
-  }, []);
+  }, [loadWorkspaceSettings]);
 
   useEffect(() => {
     if (activeWorkspaceId) {
       void fetchChannels(activeWorkspaceId);
       void fetchConversations(activeWorkspaceId);
+      void fetchCategories(activeWorkspaceId);
+      void loadChannelOrder(activeWorkspaceId);
+      clearMemberColors();
+      api.get<Array<{ id: string; roles: Array<{ color: string; position: number }> }>>(
+        `/workspaces/${activeWorkspaceId}/members`
+      ).then(({ data }) => {
+        setMemberColors(data.map((m) => ({
+          userId: m.id,
+          color: m.roles.sort((a, b) => a.position - b.position)[0]?.color ?? null,
+        })));
+      }).catch(() => {});
     }
-  }, [activeWorkspaceId, fetchChannels, fetchConversations]);
+  }, [activeWorkspaceId, fetchChannels, fetchConversations, fetchCategories, loadChannelOrder, setMemberColors, clearMemberColors]);
 
-  // Load friends and preferences once on mount
+  // Load friends, preferences, and channel sounds once on mount
   useEffect(() => {
     void fetchFriends();
     void fetchRequests();
     void loadPreferences();
-  }, [fetchFriends, fetchRequests, loadPreferences]);
+    void loadChannelSounds();
+  }, [fetchFriends, fetchRequests, loadPreferences, loadChannelSounds]);
 
   // Global keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -118,6 +144,20 @@ export function AppShell(): React.ReactElement {
     if (ctrl && e.key === '/') {
       e.preventDefault();
       setShowShortcuts((v) => !v);
+    }
+    if (ctrl && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      const { settings: s, update } = useSettingsStore.getState();
+      update({ uiZoom: Math.min(1.5, Math.round(((s.uiZoom ?? 1) + 0.1) * 10) / 10) });
+    }
+    if (ctrl && e.key === '-') {
+      e.preventDefault();
+      const { settings: s, update } = useSettingsStore.getState();
+      update({ uiZoom: Math.max(0.7, Math.round(((s.uiZoom ?? 1) - 0.1) * 10) / 10) });
+    }
+    if (ctrl && e.key === '0') {
+      e.preventDefault();
+      useSettingsStore.getState().update({ uiZoom: 1 });
     }
     if (e.key === 'Escape') {
       setShowCommandPalette(false);
@@ -156,9 +196,41 @@ export function AppShell(): React.ReactElement {
     }
   }
 
-  function handleWorkspaceCreated(ws: Workspace): void {
-    setWorkspaces((prev) => [...prev, ws]);
+  function handleWorkspaceCreated(ws: WorkspaceItem): void {
+    setWorkspaces((prev) => [...prev, { ...ws, role: 'owner' }]);
     setActiveWorkspaceId(ws.id);
+  }
+
+  async function handleExportWorkspace(workspaceId: string): Promise<void> {
+    try {
+      const { data } = await api.get(`/workspaces/${workspaceId}/export`);
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const wsName = workspaces.find((w) => w.id === workspaceId)?.name ?? 'workspace';
+      a.href = url;
+      a.download = `${wsName}-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('워크스페이스 내보내기 완료');
+    } catch {
+      toast.error('내보내기 실패');
+    }
+  }
+
+  async function handleLeaveWorkspace(workspaceId: string): Promise<void> {
+    try {
+      await api.delete(`/workspaces/${workspaceId}/leave`);
+      setWorkspaces((prev) => prev.filter((w) => w.id !== workspaceId));
+      if (activeWorkspaceId === workspaceId) {
+        const remaining = workspaces.filter((w) => w.id !== workspaceId);
+        setActiveWorkspaceId(remaining[0]?.id ?? null);
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
+      toast.error(msg ?? '워크스페이스를 나갈 수 없습니다');
+    }
   }
 
   const showMemberPanel =
@@ -179,6 +251,9 @@ export function AppShell(): React.ReactElement {
     }
     if (activeTab === 'tasks' && activeWorkspaceId) {
       return <TaskBoard workspaceId={activeWorkspaceId} />;
+    }
+    if (activeTab === 'mentions') {
+      return <MentionsInbox onSelectChannel={handleSelectChannel} />;
     }
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-white/30 gap-4">
@@ -201,7 +276,13 @@ export function AppShell(): React.ReactElement {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Modals */}
       {showCommandPalette && (
-        <CommandPalette onClose={() => setShowCommandPalette(false)} onSelectChannel={handleSelectChannel} />
+        <CommandPalette
+          onClose={() => setShowCommandPalette(false)}
+          onSelectChannel={handleSelectChannel}
+          workspaceId={activeWorkspaceId ?? undefined}
+          onSelectDM={handleSelectDM}
+          onOpenDMWithUser={(uid) => void handleOpenDMWithUser(uid)}
+        />
       )}
       {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {showCreateWorkspace && (
@@ -212,6 +293,40 @@ export function AppShell(): React.ReactElement {
       )}
       {showProfile && <ProfileEditModal onClose={() => setShowProfile(false)} />}
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
+      {showImportModal && (
+        <WorkspaceImportModal
+          onClose={() => setShowImportModal(false)}
+          onImported={(ws) => {
+            setWorkspaces((prev) => [...prev, ws]);
+            setActiveWorkspaceId(ws.id);
+            setShowImportModal(false);
+          }}
+        />
+      )}
+      {rolesWorkspaceId && (
+        <RolesModal
+          workspaceId={rolesWorkspaceId}
+          initialTab={rolesInitialTab}
+          onClose={() => setRolesWorkspaceId(null)}
+        />
+      )}
+      {inviteWorkspaceId && (
+        <InviteModal
+          workspaceId={inviteWorkspaceId}
+          workspaceName={workspaces.find((w) => w.id === inviteWorkspaceId)?.name ?? ''}
+          onClose={() => setInviteWorkspaceId(null)}
+        />
+      )}
+      {leaveWorkspaceId && (
+        <ConfirmDialog
+          title="워크스페이스 나가기"
+          message={`정말 "${workspaces.find((w) => w.id === leaveWorkspaceId)?.name ?? ''}" 워크스페이스를 떠나시겠습니까?`}
+          confirmLabel="나가기"
+          danger
+          onConfirm={() => { void handleLeaveWorkspace(leaveWorkspaceId); setLeaveWorkspaceId(null); }}
+          onCancel={() => setLeaveWorkspaceId(null)}
+        />
+      )}
 
       {/* Update banners */}
       {updateDownloaded && (
@@ -237,6 +352,12 @@ export function AppShell(): React.ReactElement {
         activeId={activeWorkspaceId}
         onSelect={setActiveWorkspaceId}
         onCreateNew={() => setShowCreateWorkspace(true)}
+        onInvite={(id) => setInviteWorkspaceId(id)}
+        onOpenSettings={(id) => { setActiveWorkspaceId(id); setShowSettings(true); }}
+        onLeave={(id) => setLeaveWorkspaceId(id)}
+        onOpenRoles={(id, tab) => { setActiveWorkspaceId(id); setRolesInitialTab(tab); setRolesWorkspaceId(id); }}
+        onExport={(id) => void handleExportWorkspace(id)}
+        onImport={() => setShowImportModal(true)}
       />
 
       <Sidebar
@@ -256,7 +377,12 @@ export function AppShell(): React.ReactElement {
           {renderMainContent()}
         </div>
         {threadMsg && (
-          <ThreadPanel parentId={threadMsg.id} contextId={threadMsg.contextId} onClose={() => setThreadMsg(null)} />
+          <ThreadPanel
+            parentId={threadMsg.id}
+            contextId={threadMsg.contextId}
+            onClose={() => setThreadMsg(null)}
+            parentMessage={threadMsg}
+          />
         )}
         {showMemberPanel && (
           <MemberPanel

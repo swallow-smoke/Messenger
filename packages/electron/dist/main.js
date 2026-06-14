@@ -206,7 +206,12 @@ function createWindow() {
       webSecurity: !config.isDev
     }
   });
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    win.show();
+    if (config.isDev) {
+      win.webContents.openDevTools();
+    }
+  });
   if (config.isDev) {
     win.loadURL(config.devServerUrl);
   } else {
@@ -247,6 +252,9 @@ function setupGlobalShortcuts(win) {
       win.show();
       win.focus();
     }
+  });
+  electron.globalShortcut.register("F12", () => {
+    win.webContents.toggleDevTools();
   });
 }
 function setupAutoLaunch() {

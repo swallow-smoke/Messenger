@@ -5,7 +5,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import type { Server as SocketServer } from 'socket.io';
 
-export const router: Router = express.Router();
+const router: Router = express.Router();
 
 const userSelect = {
   id: true,

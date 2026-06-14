@@ -27,12 +27,15 @@ router.post('/upload', requireAuth, upload.single('file'), async (req: AuthReque
 
     let thumbnailUrl: string | null = null;
     let thumbName: string | null = null;
+    let hasAlpha: boolean | null = null;
 
     if (IMAGE_TYPES.has(req.file.mimetype)) {
-      const thumb = await sharp(req.file.buffer)
-        .resize(400, 400, { fit: 'cover' })
-        .png()
-        .toBuffer();
+      const img = sharp(req.file.buffer);
+      const meta = await img.metadata();
+      if (req.file.mimetype === 'image/png') {
+        hasAlpha = meta.channels != null && meta.channels >= 4 && meta.hasAlpha === true;
+      }
+      const thumb = await img.clone().resize(400, 400, { fit: 'cover' }).png().toBuffer();
       thumbName = `${id}_thumb.png`;
       await uploadBuffer(thumbName, thumb, 'image/png');
       thumbnailUrl = await getPresignedUrl(thumbName, PRESIGN_EXPIRY);
@@ -44,8 +47,10 @@ router.post('/upload', requireAuth, upload.single('file'), async (req: AuthReque
       file_name: req.file.originalname,
       mime_type: req.file.mimetype,
       file_size: req.file.size,
+      ...(hasAlpha !== null ? { has_alpha: hasAlpha } : {}),
     });
-  } catch {
+  } catch (err) {
+    console.error('[files] upload error:', err);
     res.status(500).json({ error: 'Upload failed' });
   }
 });

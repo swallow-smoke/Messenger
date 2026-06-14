@@ -1,23 +1,39 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useChannelsStore } from '../../store/channels';
+import { useDMStore } from '../../store/dm';
+import { useAuthStore } from '../../store/auth';
+import api from '../../lib/api';
+
+interface WorkspaceMember {
+  id: string;
+  displayName: string;
+  avatarUrl?: string;
+}
 
 interface Result {
-  type: 'channel' | 'user' | 'doc' | 'task';
+  type: 'channel' | 'dm' | 'user';
   id: string;
   label: string;
   sub?: string;
+  avatarUrl?: string;
 }
 
 interface Props {
   onClose(): void;
   onSelectChannel(id: string): void;
+  workspaceId?: string;
+  onSelectDM?: (id: string) => void;
+  onOpenDMWithUser?: (userId: string) => void;
 }
 
-export function CommandPalette({ onClose, onSelectChannel }: Props): React.ReactElement {
+export function CommandPalette({ onClose, onSelectChannel, workspaceId, onSelectDM, onOpenDMWithUser }: Props): React.ReactElement {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(0);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const { channels } = useChannelsStore();
+  const { conversations } = useDMStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -31,26 +47,64 @@ export function CommandPalette({ onClose, onSelectChannel }: Props): React.React
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    if (!workspaceId) return;
+    api.get<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`)
+      .then(({ data }) => setMembers(data))
+      .catch(() => {});
+  }, [workspaceId]);
+
   const results = useMemo<Result[]>(() => {
     const q = query.toLowerCase();
-    if (!q) {
-      return channels.slice(0, 8).map((ch) => ({
-        type: 'channel' as const,
-        id: ch.id,
-        label: `# ${ch.name}`,
-        sub: ch.description,
-      }));
-    }
-    return channels
-      .filter((ch) => ch.name.toLowerCase().includes(q))
-      .slice(0, 8)
-      .map((ch) => ({
-        type: 'channel' as const,
-        id: ch.id,
-        label: `# ${ch.name}`,
-        sub: ch.description,
-      }));
-  }, [query, channels]);
+
+    const channelResults: Result[] = (
+      q
+        ? channels.filter((ch) => ch.name.toLowerCase().includes(q))
+        : channels.slice(0, 5)
+    ).slice(0, 5).map((ch) => ({
+      type: 'channel' as const,
+      id: ch.id,
+      label: `# ${ch.name}`,
+      sub: ch.description,
+    }));
+
+    const dmResults: Result[] = (
+      q
+        ? conversations.filter((c) => {
+            const name = c.name ?? c.members.filter((m) => m.user.id !== user?.id).map((m) => m.user.displayName).join(', ');
+            return name.toLowerCase().includes(q);
+          })
+        : conversations.slice(0, 3)
+    ).slice(0, 4).map((c) => {
+      const other = c.members.find((m) => m.user.id !== user?.id)?.user;
+      const label = c.name ?? other?.displayName ?? 'DM';
+      return {
+        type: 'dm' as const,
+        id: c.id,
+        label,
+        avatarUrl: other?.avatarUrl,
+      };
+    });
+
+    const memberResults: Result[] = q
+      ? members
+          .filter((m) => m.id !== user?.id && m.displayName.toLowerCase().includes(q))
+          .slice(0, 4)
+          .map((m) => ({
+            type: 'user' as const,
+            id: m.id,
+            label: m.displayName,
+            sub: '대화 시작',
+            avatarUrl: m.avatarUrl,
+          }))
+      : [];
+
+    return [...channelResults, ...dmResults, ...memberResults];
+  }, [query, channels, conversations, members, user]);
+
+  useEffect(() => {
+    setFocused(0);
+  }, [query]);
 
   function handleKeyDown(e: React.KeyboardEvent): void {
     if (e.key === 'ArrowDown') {
@@ -61,17 +115,22 @@ export function CommandPalette({ onClose, onSelectChannel }: Props): React.React
       setFocused((f) => Math.max(f - 1, 0));
     } else if (e.key === 'Enter') {
       const r = results[focused];
-      if (r) {
-        if (r.type === 'channel') onSelectChannel(r.id);
-        onClose();
-      }
+      if (r) select(r);
     }
   }
 
   function select(r: Result): void {
     if (r.type === 'channel') onSelectChannel(r.id);
+    else if (r.type === 'dm') onSelectDM?.(r.id);
+    else if (r.type === 'user') onOpenDMWithUser?.(r.id);
     onClose();
   }
+
+  const TYPE_ICON: Record<Result['type'], string> = {
+    channel: '#',
+    dm: '💬',
+    user: '👤',
+  };
 
   return (
     <div
@@ -89,9 +148,9 @@ export function CommandPalette({ onClose, onSelectChannel }: Props): React.React
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setFocused(0); }}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="채널, 문서, 태스크 검색..."
+            placeholder="채널, DM, 멤버 검색..."
             className="flex-1 bg-transparent outline-none text-white placeholder-white/40 text-sm"
           />
           <kbd className="text-white/30 text-xs border border-white/10 rounded px-1.5 py-0.5">ESC</kbd>
@@ -102,13 +161,17 @@ export function CommandPalette({ onClose, onSelectChannel }: Props): React.React
           )}
           {results.map((r, i) => (
             <button
-              key={r.id}
+              key={`${r.type}-${r.id}`}
               onClick={() => select(r)}
               className={`w-full text-left px-4 py-2.5 flex items-center gap-3 transition-colors ${
                 i === focused ? 'bg-accent/20' : 'hover:bg-white/5'
               }`}
             >
-              <span className="text-white/40 text-xs w-14 flex-shrink-0 capitalize">{r.type}</span>
+              {r.avatarUrl ? (
+                <img src={r.avatarUrl} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <span className="text-white/40 text-sm w-6 text-center flex-shrink-0">{TYPE_ICON[r.type]}</span>
+              )}
               <span className="text-white text-sm font-medium">{r.label}</span>
               {r.sub && <span className="text-white/40 text-xs truncate">{r.sub}</span>}
             </button>

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { Toaster, useToasterStore, toast } from 'react-hot-toast';
 import { App } from './app';
 import './index.css';
+import '@google/model-viewer';
 
 const MAX_TOASTS = 3;
 

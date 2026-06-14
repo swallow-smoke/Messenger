@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import type { Server as SocketServer } from 'socket.io';
+import type { Prisma } from '@prisma/client';
 
 const router: Router = express.Router();
 
@@ -24,7 +25,7 @@ const MSG_INCLUDE = {
 
 router.get('/:channelId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { before, limit = '50' } = req.query as { before?: string; limit?: string };
+    const { before, after, limit = '50' } = req.query as { before?: string; after?: string; limit?: string };
     const take = Math.min(parseInt(limit), 100);
     const messages = await prisma.message.findMany({
       where: {
@@ -33,12 +34,13 @@ router.get('/:channelId/messages', requireAuth, async (req: AuthRequest, res: Re
         isDeleted: false,
         parentId: null,
         ...(before ? { createdAt: { lt: new Date(before) } } : {}),
+        ...(after ? { createdAt: { gte: new Date(after) } } : {}),
       },
       include: MSG_INCLUDE,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: after ? 'asc' : 'desc' },
       take,
     });
-    res.json(messages.reverse());
+    res.json(after ? messages : messages.reverse());
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
@@ -63,9 +65,31 @@ router.get('/:id/thread', requireAuth, async (req: AuthRequest, res: Response) =
 
 router.patch('/:id', requireAuth, validate(editSchema), async (req: AuthRequest, res: Response) => {
   try {
+    const current = await prisma.message.findUniqueOrThrow({ where: { id: req.params.id, senderId: req.user!.id } });
+    const prevHistory = ((current.metadata as Record<string, unknown>).editHistory as Array<{ content: string; editedAt: string }>) ?? [];
+    const editHistory = [...prevHistory, { content: current.content, editedAt: current.updatedAt.toISOString() }];
+    const updatedMeta = { ...(current.metadata as Record<string, unknown>), editHistory } as Prisma.InputJsonValue;
     const message = await prisma.message.update({
       where: { id: req.params.id, senderId: req.user!.id },
-      data: { content: req.body.content, isEdited: true },
+      data: { content: req.body.content, isEdited: true, metadata: updatedMeta },
+      include: { sender: { select: { id: true, displayName: true, avatarUrl: true } }, attachments: true, reactions: true },
+    });
+    const io: SocketServer = req.app.get('io');
+    io.to(message.contextId).emit('message:update', message);
+    res.json(message);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.patch('/:id/tag', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { buildTag } = req.body as { buildTag: string | null };
+    const current = await prisma.message.findUniqueOrThrow({ where: { id: req.params.id } });
+    const updatedMeta = { ...(current.metadata as Record<string, unknown>), buildTag: buildTag ?? undefined } as Prisma.InputJsonValue;
+    const message = await prisma.message.update({
+      where: { id: req.params.id },
+      data: { metadata: updatedMeta },
       include: { sender: { select: { id: true, displayName: true, avatarUrl: true } }, attachments: true, reactions: true },
     });
     const io: SocketServer = req.app.get('io');

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import api from '../../lib/api';
+import { useChannelsStore, type Channel } from '../../store/channels';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -20,13 +21,16 @@ export function ChannelCreateModal({ workspaceId, onClose }: Props): React.React
     setLoading(true);
     setError('');
     try {
-      await api.post('/channels', {
+      const { data } = await api.post('/channels', {
         name: name.trim(),
         description: description.trim() || undefined,
         isPrivate,
         workspaceId,
       });
-      toast.success(`#${name.trim().replace(/^#/, '')} 채널이 생성되었습니다`);
+      const created = data as Channel;
+      useChannelsStore.getState().addChannel(created);
+      useChannelsStore.getState().setActive(created.id);
+      toast.success(`#${created.name} 채널이 생성되었습니다`);
       onClose();
     } catch {
       setError('채널 생성에 실패했습니다');
