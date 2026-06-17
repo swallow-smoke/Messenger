@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { InputJsonValue } from '@prisma/client/runtime/library';
 import { prisma } from '../lib/prisma';
 import { redis } from '../lib/redis';
-import { fetchLinkPreview } from '../services/link-preview';
+import { getCachedLinkPreview } from '../services/link-preview';
 import type { AuthSocket } from './index';
 
 const sendSchema = z.object({
@@ -110,7 +110,7 @@ export function registerMessageHandlers(io: Server, socket: AuthSocket): void {
       if (urlMatch) {
         void (async () => {
           try {
-            const preview = await fetchLinkPreview(urlMatch[0]);
+            const preview = await getCachedLinkPreview(urlMatch[0]);
             if (!preview.title && !preview.description) return;
 
             const existingMeta = (message.metadata ?? {}) as Record<string, unknown>;
@@ -120,7 +120,7 @@ export function registerMessageHandlers(io: Server, socket: AuthSocket): void {
                 metadata: {
                   ...existingMeta,
                   linkPreview: { url: urlMatch[0], ...preview },
-                } as InputJsonValue,
+                } as unknown as InputJsonValue,
               },
               include: {
                 sender: { select: { id: true, displayName: true, avatarUrl: true } },

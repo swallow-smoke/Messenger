@@ -553,6 +553,7 @@ model LinkPreview {
   imageUrl    String?  @map("image_url")
   siteName    String?  @map("site_name")
   embedUrl    String?  @map("embed_url")
+  data        Json?
   fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz
   expiresAt   DateTime @default(dbgenerated("NOW() + INTERVAL '24 hours'")) @map("expires_at") @db.Timestamptz
 

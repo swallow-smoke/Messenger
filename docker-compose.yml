@@ -46,6 +46,7 @@ services:
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PUBLIC_URL: http://localhost:9000
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     ports: ["4000:4000", "9999:9999"]
     restart: unless-stopped
     depends_on:
