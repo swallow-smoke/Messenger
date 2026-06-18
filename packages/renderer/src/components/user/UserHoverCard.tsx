@@ -1,14 +1,27 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePresenceStore } from '../../store/presence';
 import { useAuthStore } from '../../store/auth';
 import { useFriendsStore } from '../../store/friends';
 import toast from 'react-hot-toast';
+import api from '../../lib/api';
+import { MarkdownContent } from '../message/MarkdownContent';
+import { ProviderIcon, PROVIDER_LABEL, type ConnectedAccount } from './connectedAccounts';
+import { UserProfileModal } from './UserProfileModal';
+import { SocialBadgeRow } from './SocialBadgeRow';
+import { GiveBadgeModal } from './GiveBadgeModal';
+import type { SocialBadge } from './socialBadges';
+
+function openExternal(url: string): void {
+  if (window.electron?.shell) void window.electron.shell.openExternal(url);
+  else window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 interface Props {
   userId: string;
   displayName: string;
   avatarUrl?: string;
   email?: string;
+  workspaceId?: string;
   onClose(): void;
   onOpenDM?(userId: string): void;
   style?: React.CSSProperties;
@@ -28,7 +41,7 @@ const STATUS_COLOR: Record<string, string> = {
   offline: 'bg-gray-500',
 };
 
-export function UserHoverCard({ userId, displayName, avatarUrl, email, onClose, onOpenDM, style }: Props): React.ReactElement {
+export function UserHoverCard({ userId, displayName, avatarUrl, email, workspaceId, onClose, onOpenDM, style }: Props): React.ReactElement {
   const getStatus = usePresenceStore((s) => s.getStatus);
   const presences = usePresenceStore((s) => s.presences);
   const status = getStatus(userId);
@@ -36,6 +49,25 @@ export function UserHoverCard({ userId, displayName, avatarUrl, email, onClose, 
   const { user } = useAuthStore();
   const { getRelationship, sendRequest, removeFriend, acceptRequest } = useFriendsStore();
   const [loading, setLoading] = useState(false);
+  const [readme, setReadme] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [badges, setBadges] = useState<SocialBadge[]>([]);
+  const [showFullProfile, setShowFullProfile] = useState(false);
+  const [showGiveBadge, setShowGiveBadge] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .get(`/users/${userId}/profile`)
+      .then(({ data }) => {
+        if (!active) return;
+        setReadme((data as { profileReadme?: string | null }).profileReadme ?? null);
+        setAccounts((data as { connectedAccounts?: ConnectedAccount[] }).connectedAccounts ?? []);
+        setBadges((data as { receivedBadges?: SocialBadge[] }).receivedBadges ?? []);
+      })
+      .catch(() => { /* handled by interceptor */ });
+    return () => { active = false; };
+  }, [userId]);
 
   const initials = displayName.charAt(0).toUpperCase();
   const isSelf = user?.id === userId;
@@ -101,6 +133,49 @@ export function UserHoverCard({ userId, displayName, avatarUrl, email, onClose, 
         </div>
       </div>
 
+      {/* Connected accounts */}
+      {accounts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {accounts.map((acc) => (
+            <button
+              key={acc.id}
+              onClick={() => openExternal(acc.url)}
+              title={`${PROVIDER_LABEL[acc.provider]} · ${acc.displayName}`}
+              className="inline-flex items-center justify-center w-7 h-7 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-white/60 hover:text-white transition-colors"
+            >
+              <ProviderIcon provider={acc.provider} />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Received social badges */}
+      {badges.length > 0 && (
+        <div className="mb-3">
+          <SocialBadgeRow badges={badges} size="sm" />
+        </div>
+      )}
+
+      {/* README preview (capped to ~3 lines) */}
+      {readme?.trim() && (
+        <div className="mb-3">
+          <div className="relative max-h-[4.2rem] overflow-hidden text-white/70">
+            <MarkdownContent content={readme} />
+            <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-surface to-transparent pointer-events-none" />
+          </div>
+          <button
+            onClick={() => setShowFullProfile(true)}
+            className="mt-1 text-xs text-accent hover:underline"
+          >
+            더 보기
+          </button>
+        </div>
+      )}
+
+      {showFullProfile && (
+        <UserProfileModal userId={userId} onClose={() => setShowFullProfile(false)} />
+      )}
+
       {!isSelf && (
         <div className="flex gap-2">
           {onOpenDM && rel?.status === 'accepted' && (
@@ -135,6 +210,24 @@ export function UserHoverCard({ userId, displayName, avatarUrl, email, onClose, 
             </button>
           )}
         </div>
+      )}
+
+      {!isSelf && workspaceId && (
+        <button
+          onClick={() => setShowGiveBadge(true)}
+          className="mt-2 w-full py-1.5 text-xs bg-white/5 hover:bg-white/15 rounded-lg text-white/70 hover:text-white transition-colors"
+        >
+          🏅 배지 주기
+        </button>
+      )}
+
+      {showGiveBadge && workspaceId && (
+        <GiveBadgeModal
+          workspaceId={workspaceId}
+          toUserId={userId}
+          toDisplayName={displayName}
+          onClose={() => setShowGiveBadge(false)}
+        />
       )}
     </div>
   );

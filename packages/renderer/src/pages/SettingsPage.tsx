@@ -718,6 +718,19 @@ function PreferencesSection(): React.ReactElement {
         checked={prefs.enable3DPreview}
         onChange={(v) => void update({ enable3DPreview: v })}
       />
+      <div>
+        <label className="block text-sm font-medium mb-1">입력 표시 문구</label>
+        <p className="text-xs text-white/40 mb-2">
+          내가 입력 중일 때 다른 사람에게 보이는 문구입니다. 비워두면 기본값(&quot;[이름] 님이 입력 중...&quot;)을 사용합니다.
+        </p>
+        <input
+          value={prefs.customTypingText ?? ''}
+          onChange={(e) => void update({ customTypingText: e.target.value.slice(0, 50) || null })}
+          placeholder="예: 코딩 중..."
+          maxLength={50}
+          className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent placeholder-white/30"
+        />
+      </div>
     </div>
   );
 }

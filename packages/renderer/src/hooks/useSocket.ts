@@ -11,6 +11,8 @@ import { useSettingsStore } from '../store/settings';
 import { usePreferencesStore } from '../store/preferences';
 import { useChannelSoundsStore } from '../store/channelSounds';
 import { useWorkspaceSettingsStore } from '../store/workspaceSettings';
+import { useFocusModeStore } from '../store/focusMode';
+import { BADGE_META, type SocialBadge } from '../components/user/socialBadges';
 import { playSound } from '../lib/sounds';
 import type { Message } from '../store/messages';
 import type { Channel } from '../store/channels';
@@ -73,7 +75,18 @@ export function useSocket(): void {
             playSound(soundId);
           }
 
-          if (settings.notifDesktop && window.electron?.notify) {
+          // Focus mode: suppress all desktop notifications except direct @mentions
+          // from the current user's DM contacts.
+          const focus = useFocusModeStore.getState();
+          let focusSuppressed = false;
+          if (focus.active) {
+            const dmContactIds = new Set(
+              useDMStore.getState().conversations.flatMap((c) => c.members.map((m) => m.user.id))
+            );
+            focusSuppressed = !(isMention && dmContactIds.has(msg.senderId));
+          }
+
+          if (!focusSuppressed && settings.notifDesktop && window.electron?.notify) {
             if (settings.notifMention && isMention) {
               void window.electron.notify.show(
                 `@멘션 — ${msg.sender.displayName}`,
@@ -121,8 +134,8 @@ export function useSocket(): void {
     socket.on('channel:deleted', ({ id }: { id: string }) => removeChannel(id));
 
     // Typing / Presence
-    socket.on('typing:update', ({ userId, isTyping, contextId }: { userId: string; isTyping: boolean; contextId: string }) => {
-      setTyping(contextId, userId, isTyping);
+    socket.on('typing:update', ({ userId, isTyping, contextId, displayName, customTypingText }: { userId: string; isTyping: boolean; contextId: string; displayName?: string; customTypingText?: string | null }) => {
+      setTyping(contextId, userId, isTyping, { displayName, customTypingText });
     });
     socket.on('presence:update', ({ userId, status, statusText }: { userId: string; status: UserStatus; statusText?: string }) => {
       setPresence({ userId, status, statusText });
@@ -151,6 +164,16 @@ export function useSocket(): void {
       toast.success(`${accepter.displayName}님이 친구 요청을 수락했습니다`);
     });
 
+    // Social badges
+    socket.on('badge:received', (badge: SocialBadge) => {
+      const meta = BADGE_META[badge.type];
+      const label = meta ? `${meta.emoji} ${meta.label}` : '배지';
+      toast(`${badge.fromUser.displayName}님이 ${label} 배지를 보냈습니다`, { icon: '🏅' });
+      if (window.electron?.notify) {
+        void window.electron.notify.show('새 배지', `${badge.fromUser.displayName}님이 ${label} 배지를 보냈습니다`);
+      }
+    });
+
     // Reconnect: rejoin all active rooms
     socket.on('connect', () => {
       const { activeChannelId: chId } = useChannelsStore.getState();
@@ -177,6 +200,7 @@ export function useSocket(): void {
       socket.off('doc:updated');
       socket.off('friend:request-received');
       socket.off('friend:request-accepted');
+      socket.off('badge:received');
       socket.off('connect');
       disconnect();
     };

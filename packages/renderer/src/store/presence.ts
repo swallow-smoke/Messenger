@@ -8,17 +8,24 @@ export interface PresenceEntry {
   statusText?: string;
 }
 
+export interface TypingMeta {
+  displayName?: string;
+  customTypingText?: string | null;
+}
+
 interface PresenceState {
   presences: Record<string, PresenceEntry>;
   typingUsers: Record<string, string[]>; // contextId → userId[]
+  typingMeta: Record<string, TypingMeta>; // userId → meta
   setPresence(entry: PresenceEntry): void;
-  setTyping(contextId: string, userId: string, isTyping: boolean): void;
+  setTyping(contextId: string, userId: string, isTyping: boolean, meta?: TypingMeta): void;
   getStatus(userId: string): UserStatus;
 }
 
 export const usePresenceStore = create<PresenceState>((set, get) => ({
   presences: {},
   typingUsers: {},
+  typingMeta: {},
 
   setPresence(entry) {
     set((s) => ({
@@ -26,13 +33,16 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
     }));
   },
 
-  setTyping(contextId, userId, isTyping) {
+  setTyping(contextId, userId, isTyping, meta) {
     set((s) => {
       const current = s.typingUsers[contextId] ?? [];
       const next = isTyping
         ? current.includes(userId) ? current : [...current, userId]
         : current.filter((id) => id !== userId);
-      return { typingUsers: { ...s.typingUsers, [contextId]: next } };
+      const typingMeta = isTyping && meta
+        ? { ...s.typingMeta, [userId]: meta }
+        : s.typingMeta;
+      return { typingUsers: { ...s.typingUsers, [contextId]: next }, typingMeta };
     });
   },
 

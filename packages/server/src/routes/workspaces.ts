@@ -7,8 +7,16 @@ import { hasPermission } from '../lib/permissions';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import type { Prisma } from '@prisma/client';
+import type { Server as SocketServer } from 'socket.io';
 
 const router: Router = express.Router();
+
+const socialBadgeSchema = z.object({
+  type: z.enum(['helpful', 'great_review', 'team_player', 'creative', 'mentor']),
+  message: z.string().max(100).nullable().optional(),
+});
+
+const MONTHLY_BADGE_LIMIT = 3;
 
 function makeSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + nanoid(4);
@@ -464,6 +472,66 @@ router.post('/import', requireAuth, async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('[import] error:', err);
     res.status(500).json({ error: 'Import failed' });
+  }
+});
+
+// Give a social badge to a workspace member.
+// Limit: max 3 badges per giver per receiver per calendar month.
+router.post('/:id/members/:userId/social-badges', requireAuth, validate(socialBadgeSchema), async (req: AuthRequest, res: Response) => {
+  try {
+    const workspaceId = req.params.id;
+    const toUserId = req.params.userId;
+    const fromUserId = req.user!.id;
+    const { type, message } = req.body as z.infer<typeof socialBadgeSchema>;
+
+    if (toUserId === fromUserId) {
+      res.status(400).json({ error: '자신에게는 배지를 줄 수 없습니다' });
+      return;
+    }
+
+    // Both giver and receiver must belong to the workspace.
+    const memberships = await prisma.workspaceMember.findMany({
+      where: { workspaceId, userId: { in: [fromUserId, toUserId] } },
+      select: { userId: true },
+    });
+    const memberIds = new Set(memberships.map((m) => m.userId));
+    if (!memberIds.has(fromUserId) || !memberIds.has(toUserId)) {
+      res.status(403).json({ error: '워크스페이스 멤버가 아닙니다' });
+      return;
+    }
+
+    // Monthly per giver→receiver limit.
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const givenThisMonth = await prisma.socialBadge.count({
+      where: { fromUserId, toUserId, createdAt: { gte: monthStart } },
+    });
+    if (givenThisMonth >= MONTHLY_BADGE_LIMIT) {
+      res.status(429).json({ error: `이번 달 이 멤버에게 줄 수 있는 배지를 모두 사용했습니다 (최대 ${MONTHLY_BADGE_LIMIT}개)` });
+      return;
+    }
+
+    const badge = await prisma.socialBadge.create({
+      data: { fromUserId, toUserId, workspaceId, type, message: message ?? null },
+      select: {
+        id: true,
+        type: true,
+        message: true,
+        createdAt: true,
+        workspaceId: true,
+        fromUser: { select: { id: true, displayName: true, avatarUrl: true } },
+      },
+    });
+
+    // Notify the receiver in real time (their personal room == userId).
+    const io: SocketServer = req.app.get('io');
+    io.to(toUserId).emit('badge:received', badge);
+
+    res.status(201).json(badge);
+  } catch (err) {
+    console.error('[social-badge] error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

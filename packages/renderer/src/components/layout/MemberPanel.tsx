@@ -4,6 +4,7 @@ import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
 import { useAuthStore } from '../../store/auth';
 import { useMemberColorsStore } from '../../store/memberColors';
+import { GiveBadgeModal } from '../user/GiveBadgeModal';
 
 interface ChannelMember {
   userId: string;
@@ -16,10 +17,18 @@ interface ChannelMember {
 }
 
 interface Props {
+  workspaceId: string;
   activeChannelId: string | null;
   activeDMConversationId: string | null;
   activeTab: string;
   onOpenDM(userId: string): void;
+}
+
+interface ContextMenuState {
+  userId: string;
+  displayName: string;
+  x: number;
+  y: number;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -31,7 +40,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 const STATUS_ORDER: Record<string, number> = { online: 0, away: 1, dnd: 2, offline: 3 };
 
-export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab, onOpenDM }: Props): React.ReactElement {
+export function MemberPanel({ workspaceId, activeChannelId, activeDMConversationId, activeTab, onOpenDM }: Props): React.ReactElement {
   const [members, setMembers] = useState<ChannelMember[]>([]);
   const [onlineOpen, setOnlineOpen] = useState(true);
   const [offlineOpen, setOfflineOpen] = useState(true);
@@ -39,6 +48,19 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
   const { conversations } = useDMStore();
   const { user } = useAuthStore();
   const memberColors = useMemberColorsStore((s) => s.colors);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [badgeTarget, setBadgeTarget] = useState<{ userId: string; displayName: string } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = (): void => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+    };
+  }, [contextMenu]);
 
   const fetchChannelMembers = useCallback(async (channelId: string): Promise<void> => {
     try {
@@ -101,6 +123,11 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
         key={m.userId}
         className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/8 transition-colors text-left"
         onClick={() => { if (user && m.userId !== user.id) onOpenDM(m.userId); }}
+        onContextMenu={(e) => {
+          if (!user || m.userId === user.id) return;
+          e.preventDefault();
+          setContextMenu({ userId: m.userId, displayName: m.displayName, x: e.clientX, y: e.clientY });
+        }}
         title={m.userId === user?.id ? undefined : `DM 보내기: ${m.displayName}`}
       >
         <div className="relative flex-shrink-0">
@@ -183,6 +210,40 @@ export function MemberPanel({ activeChannelId, activeDMConversationId, activeTab
           </>
         )}
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed z-[60] bg-surface border border-white/15 rounded-lg shadow-2xl py-1 min-w-[140px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 transition-colors"
+            onClick={() => { onOpenDM(contextMenu.userId); setContextMenu(null); }}
+          >
+            DM 보내기
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-white/10 transition-colors disabled:opacity-40"
+            disabled={!workspaceId}
+            onClick={() => {
+              setBadgeTarget({ userId: contextMenu.userId, displayName: contextMenu.displayName });
+              setContextMenu(null);
+            }}
+          >
+            🏅 배지 주기
+          </button>
+        </div>
+      )}
+
+      {badgeTarget && workspaceId && (
+        <GiveBadgeModal
+          workspaceId={workspaceId}
+          toUserId={badgeTarget.userId}
+          toDisplayName={badgeTarget.displayName}
+          onClose={() => setBadgeTarget(null)}
+        />
+      )}
     </div>
   );
 }

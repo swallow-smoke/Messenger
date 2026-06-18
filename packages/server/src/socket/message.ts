@@ -148,12 +148,26 @@ export function registerMessageHandlers(io: Server, socket: AuthSocket): void {
   socket.on('typing:start', async (data: { contextId: string }) => {
     const key = `typing:${data.contextId}:${socket.userId}`;
     await redis.setex(key, 5, '1');
-    socket.to(data.contextId).emit('typing:update', { userId: socket.userId, isTyping: true });
+    const profile = await prisma.user.findUnique({
+      where: { id: socket.userId },
+      select: { displayName: true, preferences: { select: { customTypingText: true } } },
+    });
+    socket.to(data.contextId).emit('typing:update', {
+      userId: socket.userId,
+      isTyping: true,
+      contextId: data.contextId,
+      displayName: profile?.displayName,
+      customTypingText: profile?.preferences?.customTypingText ?? null,
+    });
   });
 
   socket.on('typing:stop', async (data: { contextId: string }) => {
     const key = `typing:${data.contextId}:${socket.userId}`;
     await redis.del(key);
-    socket.to(data.contextId).emit('typing:update', { userId: socket.userId, isTyping: false });
+    socket.to(data.contextId).emit('typing:update', {
+      userId: socket.userId,
+      isTyping: false,
+      contextId: data.contextId,
+    });
   });
 }

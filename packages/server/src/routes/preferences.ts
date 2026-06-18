@@ -10,6 +10,7 @@ const updateSchema = z.object({
   enableCodeHighlight: z.boolean().optional(),
   enable3DPreview: z.boolean().optional(),
   keywords: z.array(z.string().max(100)).max(50).optional(),
+  customTypingText: z.string().max(50).nullable().optional(),
 });
 
 router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {

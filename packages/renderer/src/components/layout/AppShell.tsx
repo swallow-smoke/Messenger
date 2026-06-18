@@ -28,6 +28,7 @@ import { useChannelSoundsStore } from '../../store/channelSounds';
 import { useChannelOrderStore } from '../../store/channelOrder';
 import { useMemberColorsStore } from '../../store/memberColors';
 import { useSocket } from '../../hooks/useSocket';
+import { useFocusTimer } from '../../hooks/useFocusTimer';
 import { storage } from '../../lib/api';
 import api from '../../lib/api';
 import type { Message } from '../../store/messages';
@@ -40,6 +41,7 @@ const MEMBER_PANEL_KEY = 'memberPanelOpen';
 
 export function AppShell(): React.ReactElement {
   useSocket();
+  useFocusTimer();
 
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -386,6 +388,7 @@ export function AppShell(): React.ReactElement {
         )}
         {showMemberPanel && (
           <MemberPanel
+            workspaceId={activeWorkspaceId ?? ''}
             activeChannelId={activeChannelId}
             activeDMConversationId={activeDMConversationId}
             activeTab={activeTab}

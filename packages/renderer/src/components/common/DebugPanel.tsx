@@ -9,6 +9,9 @@ import type { LightboxImage } from '../message/Lightbox';
 const FBXPreview = lazy(() =>
   import('../message/FBXModelPreview').then((m) => ({ default: m.FBXModelPreview }))
 );
+const GLTFPreview = lazy(() =>
+  import('../message/GLTFModelPreview').then((m) => ({ default: m.GLTFModelPreview }))
+);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -142,16 +145,9 @@ function ImagePreview({ url }: { url: string }): React.ReactElement {
 
 function ModelViewerLocal({ fileUrl, fileName }: { fileUrl: string; fileName: string }): React.ReactElement {
   return (
-    <div className="rounded-lg overflow-hidden border border-white/10 bg-black/30" style={{ width: '100%', height: 280 }}>
-      <model-viewer
-        src={fileUrl}
-        alt={fileName}
-        camera-controls=""
-        auto-rotate=""
-        shadow-intensity="1"
-        style={{ width: '100%', height: '100%' }}
-      />
-    </div>
+    <Suspense fallback={null}>
+      <GLTFPreview fileUrl={fileUrl} fileName={fileName} />
+    </Suspense>
   );
 }
 

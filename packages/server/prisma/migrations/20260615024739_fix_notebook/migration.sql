@@ -1,0 +1,4 @@
+-- Migration file restored as a no-op.
+-- The original SQL for "fix_notebook" was lost from disk, but the migration was
+-- already applied to the database (recorded in _prisma_migrations). This placeholder
+-- keeps Prisma's migration history consistent; its checksum is synced in the DB.

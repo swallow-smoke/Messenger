@@ -3,6 +3,9 @@ import React, { useState, useRef, useCallback, useEffect, Suspense, lazy } from 
 const FBXModelPreview = lazy(() =>
   import('./FBXModelPreview').then((m) => ({ default: m.FBXModelPreview }))
 );
+const GLTFModelPreview = lazy(() =>
+  import('./GLTFModelPreview').then((m) => ({ default: m.GLTFModelPreview }))
+);
 import { formatDistanceToNow, format } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import data from '@emoji-mart/data';
@@ -211,35 +214,11 @@ function handleAttachmentDragStart(e: React.DragEvent, mimeType: string, fileNam
   e.dataTransfer.setData('DownloadURL', `${mimeType}:${fileName}:${fileUrl}`);
 }
 
-// Inline <model-viewer> for .glb / .gltf when enable3DPreview is on
 function ModelViewerPreview({ attachment }: { attachment: Attachment }): React.ReactElement {
   return (
-    <div
-      className="mt-1 rounded-lg overflow-hidden border border-white/10 bg-black/30 relative group/mv"
-      style={{ width: 400, height: 300 }}
-    >
-      <model-viewer
-        src={attachment.fileUrl}
-        alt={attachment.fileName}
-        camera-controls=""
-        auto-rotate=""
-        shadow-intensity="1"
-        style={{ width: '100%', height: '100%' }}
-      />
-      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between opacity-0 group-hover/mv:opacity-100 transition-opacity pointer-events-none">
-        <span className="text-xs text-white/50 truncate max-w-[200px]">{attachment.fileName}</span>
-        <a
-          href={attachment.fileUrl}
-          download={attachment.fileName}
-          draggable
-          onDragStart={(e) => handleAttachmentDragStart(e, 'model/gltf-binary', attachment.fileName, attachment.fileUrl)}
-          onClick={(e) => { e.preventDefault(); openExternal(attachment.fileUrl); }}
-          className="pointer-events-auto px-2 py-1 bg-black/60 hover:bg-black/80 text-white/80 hover:text-white rounded text-xs"
-        >
-          ⬇ 다운로드
-        </a>
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <GLTFModelPreview fileUrl={attachment.fileUrl} fileName={attachment.fileName} />
+    </Suspense>
   );
 }
 

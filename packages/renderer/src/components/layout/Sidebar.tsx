@@ -21,6 +21,8 @@ import { usePresenceStore } from '../../store/presence';
 import { useDMStore } from '../../store/dm';
 import { useFriendsStore } from '../../store/friends';
 import { useSettingsStore, resolveTheme } from '../../store/settings';
+import { useFocusModeStore, FOCUS_STATUS, FOCUS_STATUS_TEXT } from '../../store/focusMode';
+import { setUserStatus } from '../../lib/status';
 import { UserAvatar } from '../user/UserAvatar';
 import { getSocket } from '../../lib/socket';
 import toast from 'react-hot-toast';
@@ -154,6 +156,13 @@ export function Sidebar({
   const { settings, update } = useSettingsStore();
   const onlineCount = Object.values(presences).filter((p) => p.status === 'online').length;
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const focusActive = useFocusModeStore((s) => s.active);
+  const focusEndsAt = useFocusModeStore((s) => s.endsAt);
+  const beginFocus = useFocusModeStore((s) => s.begin);
+  const clearFocus = useFocusModeStore((s) => s.clear);
+  const [focusDuration, setFocusDuration] = useState(25);
+  const [focusCustomMin, setFocusCustomMin] = useState('');
+  const [, setNowTick] = useState(0);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -236,6 +245,42 @@ export function Sidebar({
     getSocket().emit('status:set', { status, statusText });
     toast.success(statusText ? `${statusText}` : `상태: ${STATUS_LABELS[status] ?? status}`);
     setShowUserMenu(false);
+  }
+
+  // Re-render every second while focusing so the countdown updates.
+  React.useEffect(() => {
+    if (!focusActive) return;
+    const id = setInterval(() => setNowTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [focusActive]);
+
+  function startFocus(minutes: number): void {
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    beginFocus({
+      endsAt: Date.now() + minutes * 60_000,
+      durationMin: minutes,
+      prevStatus: user?.status ?? 'online',
+      prevStatusText: user?.statusText ?? null,
+    });
+    setUserStatus(FOCUS_STATUS, FOCUS_STATUS_TEXT);
+    toast.success(`집중 모드 시작 — ${minutes}분`);
+    setShowUserMenu(false);
+  }
+
+  function stopFocus(): void {
+    const { prevStatus, prevStatusText } = useFocusModeStore.getState();
+    setUserStatus(prevStatus ?? 'online', prevStatusText ?? undefined);
+    clearFocus();
+    toast('집중 모드 종료');
+  }
+
+  function focusRemaining(): string {
+    if (!focusEndsAt) return '';
+    const ms = Math.max(0, focusEndsAt - Date.now());
+    const total = Math.floor(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
   async function handleLogout(): Promise<void> {
@@ -565,6 +610,56 @@ export function Sidebar({
                       }}
                     />
                   </div>
+                  {/* Focus mode */}
+                  <div className="px-3 py-1.5 text-[10px] text-white/30 uppercase tracking-wide border-t border-white/5 mt-1">집중 모드</div>
+                  {focusActive ? (
+                    <div className="px-3 pb-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-white/80">🎯 집중 중</span>
+                        <span className="text-xs font-mono text-accent tabular-nums">{focusRemaining()}</span>
+                      </div>
+                      <button
+                        onClick={stopFocus}
+                        className="w-full py-1 text-xs bg-white/5 hover:bg-white/15 rounded text-white/70 hover:text-white transition-colors"
+                      >
+                        집중 모드 종료
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="px-3 pb-2">
+                      <div className="flex gap-1 mb-1.5">
+                        {[25, 45, 90].map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setFocusDuration(m)}
+                            className={`flex-1 py-0.5 text-[10px] rounded transition-colors ${
+                              focusDuration === m && !focusCustomMin
+                                ? 'bg-accent text-white'
+                                : 'bg-white/5 text-white/60 hover:bg-white/10'
+                            }`}
+                          >
+                            {m}분
+                          </button>
+                        ))}
+                        <input
+                          type="number"
+                          min={1}
+                          max={600}
+                          value={focusCustomMin}
+                          onChange={(e) => setFocusCustomMin(e.target.value)}
+                          placeholder="직접"
+                          className="w-12 bg-white/5 border border-white/10 rounded px-1 py-0.5 text-[10px] text-white placeholder-white/30 outline-none focus:border-accent/50"
+                        />
+                      </div>
+                      <button
+                        onClick={() => startFocus(focusCustomMin ? parseInt(focusCustomMin, 10) : focusDuration)}
+                        className="w-full py-1 text-xs bg-accent/80 hover:bg-accent rounded text-white transition-colors"
+                      >
+                        집중 모드 시작
+                      </button>
+                    </div>
+                  )}
+
                   <div className="border-t border-white/5 mt-1">
                     <button
                       onClick={() => { setShowUserMenu(false); onOpenSettings(); }}

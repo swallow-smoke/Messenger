@@ -5,6 +5,7 @@ export interface UserPreferences {
   enableCodeHighlight: boolean;
   enable3DPreview: boolean;
   keywords: string[];
+  customTypingText: string | null;
 }
 
 interface PreferencesState {
@@ -18,6 +19,7 @@ const DEFAULTS: UserPreferences = {
   enableCodeHighlight: true,
   enable3DPreview: true,
   keywords: [],
+  customTypingText: null,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set, get) => ({
@@ -26,12 +28,13 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
 
   async load() {
     try {
-      const { data } = await api.get<{ enableCodeHighlight: boolean; enable3DPreview: boolean; keywords: string[] }>('/preferences');
+      const { data } = await api.get<{ enableCodeHighlight: boolean; enable3DPreview: boolean; keywords: string[]; customTypingText: string | null }>('/preferences');
       set({
         prefs: {
           enableCodeHighlight: data.enableCodeHighlight,
           enable3DPreview: data.enable3DPreview,
           keywords: data.keywords ?? [],
+          customTypingText: data.customTypingText ?? null,
         },
         loaded: true,
       });

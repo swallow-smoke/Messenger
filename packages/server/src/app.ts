@@ -26,6 +26,7 @@ import categoriesRouter from './routes/categories';
 import searchRouter from './routes/search';
 import { initSocket } from './socket';
 import { ensureBucket } from './lib/minio';
+import { startStatusScheduler } from './services/status-scheduler';
 
 const app: Express = express();
 const httpServer = http.createServer(app);
@@ -78,6 +79,7 @@ const PORT = parseInt(process.env.PORT ?? '4000');
 async function start(): Promise<void> {
   await ensureBucket();
   startDebugServer();
+  startStatusScheduler(io);
   httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });

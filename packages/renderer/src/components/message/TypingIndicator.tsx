@@ -8,14 +8,21 @@ interface Props {
 
 export function TypingIndicator({ contextId, currentUserId }: Props): React.ReactElement | null {
   const typingUsers = usePresenceStore((s) => s.typingUsers[contextId] ?? []);
+  const typingMeta = usePresenceStore((s) => s.typingMeta);
   const others = typingUsers.filter((id) => id !== currentUserId);
 
   if (!others.length) return null;
 
-  const label =
-    others.length === 1
-      ? `${others[0]} 님이 입력 중...`
-      : `${others.length}명이 입력 중...`;
+  let label: string;
+  if (others.length === 1) {
+    const meta = typingMeta[others[0]];
+    // Use the user's custom typing text if set; otherwise fall back to the default.
+    label = meta?.customTypingText?.trim()
+      ? meta.customTypingText
+      : `${meta?.displayName ?? '누군가'} 님이 입력 중...`;
+  } else {
+    label = `${others.length}명이 입력 중...`;
+  }
 
   return (
     <div className="px-4 pb-1 flex items-center gap-2 text-xs text-white/50">
